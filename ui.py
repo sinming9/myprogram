@@ -15,7 +15,7 @@
 
 import streamlit as st
 
-_CSS = """
+_CSS = r"""
 <style>
 /* ==========================================================================
    라이트/다크 자동 대응
@@ -69,7 +69,7 @@ _CSS = """
 }
 [data-testid="stSidebarCollapsedControl"] span::after,
 [data-testid="collapsedControl"] span::after {
-  content: "\2630";                    /* ☰ */
+  content: "☰";
   font-family: inherit !important;
   font-size: 26px;
   line-height: 1;
@@ -84,7 +84,7 @@ _CSS = """
   font-size: 0 !important;
 }
 [data-testid="stSidebarCollapseButton"] span::after {
-  content: "\00D7";                    /* × */
+  content: "×";
   font-family: inherit !important;
   font-size: 24px;
 }
@@ -96,7 +96,7 @@ _CSS = """
 }
 [data-testid="stExpander"] summary span[data-testid="stIconMaterial"]::after,
 [data-testid="stExpander"] [data-testid="stExpanderToggleIcon"]::after {
-  content: "\25BE";                    /* ▾ */
+  content: "▾";
   font-family: inherit !important;
   font-size: 13px;
   opacity: .7;
