@@ -9,8 +9,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
-from engines.fx import (AVG_COLORS, CURRENCIES, MAIN_COLOR, 평균_계산,  # noqa: E402
-                        타이밍_메시지, 환율_가져오기)
+from engines.fx import (AVG_COLORS, CURRENCIES, MAIN_COLOR, 금액표시,  # noqa: E402
+                        평균_계산, 타이밍_메시지, 환율_가져오기)
 
 require_login(page_title="환전 타이밍", page_icon="💱", layout="centered")
 ui.모바일_스타일()
@@ -24,8 +24,7 @@ st.title("💱 환전 타이밍 대시보드")
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def 데이터_조회(통화이름: str):
-    df, 출처 = 환율_가져오기(CURRENCIES[통화이름])
-    return df, 출처
+    return 환율_가져오기(CURRENCIES[통화이름])
 
 
 with st.sidebar:
@@ -48,7 +47,7 @@ st.caption(f"{선택} · {통화['quote']} 기준")
 
 try:
     with st.spinner("환율 데이터를 불러오는 중이에요..."):
-        df, 출처 = 데이터_조회(선택)
+        df, 출처, 기록 = 데이터_조회(선택)
 except Exception as error:  # noqa: BLE001
     st.error("환율 데이터를 가져오지 못했어요. 인터넷 연결을 확인한 뒤 새로고침해 주세요.")
     st.code(str(error))
@@ -56,16 +55,25 @@ except Exception as error:  # noqa: BLE001
 
 현재가 = float(df["Close"].iloc[-1])
 기준일 = df.index[-1].strftime("%Y년 %m월 %d일")
-평균 = 평균_계산(df)
-저렴한수 = sum(현재가 < v for v in 평균.values())
+평균, 신뢰 = 평균_계산(df)
+믿을만한 = {k: v for k, v in 평균.items() if 신뢰[k]}
+저렴한수 = sum(현재가 < v for v in 믿을만한.values())
 삼년 = df.loc[df.index >= df.index.max() - pd.DateOffset(years=3), "Close"]
 
-st.metric(f"현재 환율 ({기준일} 종가)", f"{현재가:,.2f}{통화['unit']}")
-st.markdown(f"#### 📊 5개 구간 중 **{저렴한수}개** 평균보다 저렴해요")
-종류, 메시지 = 타이밍_메시지(저렴한수)
-getattr(st, 종류)(메시지)
+st.metric(f"현재 환율 ({기준일} 종가)", 금액표시(현재가, 통화["unit"]))
+if 믿을만한:
+    st.markdown(f"#### 📊 {len(믿을만한)}개 구간 중 **{저렴한수}개** 평균보다 저렴해요")
+    종류, 메시지 = 타이밍_메시지(저렴한수 * 5 // max(len(믿을만한), 1))
+    getattr(st, 종류)(메시지)
+else:
+    st.warning("과거 자료가 부족해서 평균과 비교할 수 없어요.", icon="⚠️")
 
-평균3년 = 평균["3년 평균"]
+if not all(신뢰.values()):
+    부족 = [k for k, v in 신뢰.items() if not v]
+    st.info(f"과거 자료가 짧아서 **{', '.join(부족)}** 은 계산할 수 없습니다. "
+            "아래 '데이터 조회 경로'에서 어디서 받아왔는지 볼 수 있어요.", icon="ℹ️")
+
+평균3년 = 평균["3년 평균"] if 신뢰["3년 평균"] else float(df["Close"].mean())
 gauge = go.Figure(go.Indicator(
     mode="gauge+number",
     value=현재가,
@@ -91,8 +99,11 @@ st.subheader("기간별 평균 대비 현재가")
 for i in range(0, len(항목), 3):
     cols = st.columns(len(항목[i:i + 3]))
     for col, (라벨, 값) in zip(cols, 항목[i:i + 3]):
+        if not 신뢰[라벨]:
+            col.metric(라벨, "자료 부족", help="이 기간을 덮을 만큼 과거 자료가 없습니다")
+            continue
         차이 = (현재가 - 값) / 값 * 100
-        col.metric(라벨, f"{값:,.0f}{통화['unit']}", f"{차이:+.2f}%", delta_color="inverse")
+        col.metric(라벨, 금액표시(값, 통화["unit"]), f"{차이:+.2f}%", delta_color="inverse")
 
 st.divider()
 st.subheader("환전 금액 계산")
@@ -101,7 +112,9 @@ c1, c2 = st.columns(2)
                     step=100.0, format="%.2f")
 배수 = 금액 / (100 if 통화["scale"] == 100 else 1)
 c2.metric("현재 환율로 필요한 원화", f"{배수 * 현재가:,.0f}원",
-          f"3년 평균 대비 {배수 * (현재가 - 평균3년):+,.0f}원", delta_color="inverse")
+          (f"3년 평균 대비 {배수 * (현재가 - 평균3년):+,.0f}원" if 신뢰["3년 평균"]
+           else f"전체 평균 대비 {배수 * (현재가 - 평균3년):+,.0f}원"),
+          delta_color="inverse")
 
 st.divider()
 기간 = st.radio("추이 기간", ["6개월", "1년", "3년"], index=1, horizontal=True)
@@ -111,7 +124,7 @@ st.divider()
 trend = go.Figure()
 trend.add_trace(go.Scatter(x=최근.index, y=최근["Close"], mode="lines", name="종가",
                            line=dict(color=MAIN_COLOR, width=2)))
-for 라벨, 값 in 평균.items():
+for 라벨, 값 in 믿을만한.items():
     trend.add_hline(y=값, line_dash="dot", line_color=AVG_COLORS[라벨],
                     annotation_text=라벨, annotation_position="right")
 trend.update_layout(height=380, margin=dict(l=10, r=10, t=20, b=10),
@@ -119,3 +132,9 @@ trend.update_layout(height=380, margin=dict(l=10, r=10, t=20, b=10),
 st.plotly_chart(trend, width="stretch")
 
 st.caption(f"데이터 출처: {출처} · 1시간 단위로 캐시됩니다.")
+if len(기록) > 1:
+    with st.expander("데이터 조회 경로", expanded=not all(신뢰.values())):
+        for 줄 in 기록:
+            st.text(("  ✓ " if 줄.endswith("성공") else "  · ") + 줄)
+        st.caption("첫 경로가 막히면 달러를 경유해 계산합니다. "
+                   "예: 위안당 원화 = (달러당 원화) ÷ (달러당 위안)")
