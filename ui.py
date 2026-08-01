@@ -52,6 +52,60 @@ _CSS = """
   .card { background: rgba(127,127,127,.09); border-color: rgba(127,127,127,.24); }
 }
 
+
+/* ==========================================================================
+   Material Symbols 아이콘 폰트가 차단된 환경 대응
+   Streamlit 은 아이콘을 구글 폰트(fonts.gstatic.com)로 그립니다.
+   회사망·보안프로그램이 이를 막으면 "double_arrow_right" 같은 이름이
+   글자 그대로 노출됩니다. 아래에서 중요한 것들을 일반 문자로 바꿔둡니다.
+   (폰트가 정상일 때도 같은 모양이 나오므로 항상 안전합니다)
+   ========================================================================== */
+
+/* 사이드바 여는 버튼 → ☰ */
+[data-testid="stSidebarCollapsedControl"] span,
+[data-testid="collapsedControl"] span {
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+[data-testid="stSidebarCollapsedControl"] span::after,
+[data-testid="collapsedControl"] span::after {
+  content: "\2630";                    /* ☰ */
+  font-family: inherit !important;
+  font-size: 26px;
+  line-height: 1;
+}
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+  padding: 6px 10px !important;
+}
+
+/* 사이드바 닫는 버튼 → × */
+[data-testid="stSidebarCollapseButton"] span {
+  font-size: 0 !important;
+}
+[data-testid="stSidebarCollapseButton"] span::after {
+  content: "\00D7";                    /* × */
+  font-family: inherit !important;
+  font-size: 24px;
+}
+
+/* 펼치기(expander) 화살표 → ▾ */
+[data-testid="stExpander"] summary span[data-testid="stIconMaterial"],
+[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] {
+  font-size: 0 !important;
+}
+[data-testid="stExpander"] summary span[data-testid="stIconMaterial"]::after,
+[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"]::after {
+  content: "\25BE";                    /* ▾ */
+  font-family: inherit !important;
+  font-size: 13px;
+  opacity: .7;
+}
+
+/* 화면 안 이동 메뉴 */
+.navrow { margin: -6px 0 14px 0; }
+.navrow [data-testid="stHorizontalBlock"] { gap: .3rem !important; }
+
 /* ---------- 휴대폰 (가로 640px 이하) ---------- */
 @media (max-width: 640px) {
   .block-container { padding-left: .8rem; padding-right: .8rem; padding-top: 1.6rem; }
@@ -145,3 +199,41 @@ def 테마_안내():
         "PC/휴대폰의 다크모드 설정을 자동으로 따라갑니다. "
         "직접 바꾸려면 우측 상단 **⋮ → Settings → Appearance** 에서 고르세요."
     )
+
+
+# ==========================================================================
+# 화면 안 이동 메뉴
+#   휴대폰에서 사이드바를 못 열어도(아이콘 폰트 차단 등) 페이지를 옮길 수 있게
+#   각 페이지 맨 위에 넣는 링크 줄입니다.
+# ==========================================================================
+
+메뉴목록 = [
+    ("Home.py", "🗂️", "홈"),
+    ("pages/1_🏦_대출_상환_계산기.py", "🏦", "대출"),
+    ("pages/2_💱_환전_타이밍.py", "💱", "환전"),
+    ("pages/3_🏠_재산세_종부세.py", "🏠", "재산세"),
+    ("pages/4_💰_연봉_급여_관리.py", "💰", "연봉"),
+    ("pages/5_🥚_금리_사이클.py", "🥚", "금리"),
+    ("pages/8_📥_자료_가져오기.py", "📥", "가져오기"),
+    ("pages/9_➕_내_프로그램.py", "➕", "내 프로그램"),
+]
+
+
+def 페이지_메뉴(현재파일: str = ""):
+    """페이지 맨 위에 이동 링크를 한 줄로 깝니다.
+
+    현재파일 에는 __file__ 을 넘기면 그 항목은 빼고 보여줍니다.
+    """
+    현재 = (현재파일 or "").replace("\\", "/").split("/")[-1]
+    보일것 = [m for m in 메뉴목록 if not (현재 and m[0].split("/")[-1] == 현재)]
+    if not 보일것:
+        return
+    st.markdown('<div class="navrow">', unsafe_allow_html=True)
+    한줄 = 4
+    for i in range(0, len(보일것), 한줄):
+        묶음 = 보일것[i:i + 한줄]
+        cols = st.columns(len(묶음))
+        for col, (경로, 아이콘, 이름) in zip(cols, 묶음):
+            with col:
+                st.page_link(경로, label=f"{아이콘} {이름}")
+    st.markdown('</div>', unsafe_allow_html=True)
