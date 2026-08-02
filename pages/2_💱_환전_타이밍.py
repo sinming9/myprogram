@@ -75,7 +75,7 @@ except Exception as error:  # noqa: BLE001
 st.metric(f"현재 환율 ({기준일} 종가)", 금액표시(현재가, 통화["unit"]))
 if 믿을만한:
     st.markdown(f"#### 📊 {len(믿을만한)}개 구간 중 **{저렴한수}개** 평균보다 저렴해요")
-    종류, 메시지 = 타이밍_메시지(저렴한수 * 5 // max(len(믿을만한), 1))
+    종류, 메시지 = 타이밍_메시지(round(저렴한수 * 5 / max(len(믿을만한), 1)))
     getattr(st, 종류)(메시지)
 else:
     st.warning("과거 자료가 부족해서 평균과 비교할 수 없어요.", icon="⚠️")
@@ -129,8 +129,8 @@ c2.metric("현재 환율로 필요한 원화", f"{배수 * 현재가:,.0f}원",
           delta_color="inverse")
 
 st.divider()
-기간 = st.radio("추이 기간", ["6개월", "1년", "3년"], index=1, horizontal=True)
-개월 = {"6개월": 6, "1년": 12, "3년": 36}[기간]
+기간 = st.radio("추이 기간", ["6개월", "1년", "2년", "3년"], index=1, horizontal=True)
+개월 = {"6개월": 6, "1년": 12, "2년": 24, "3년": 36}[기간]
 최근 = df.loc[df.index >= df.index.max() - pd.DateOffset(months=개월)]
 
 trend = go.Figure()
