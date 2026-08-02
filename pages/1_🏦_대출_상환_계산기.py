@@ -143,11 +143,16 @@ def _설정_적용(data):
     st.session_state["수수료율_입력"] = float(data.get("수수료율", 1.2))
     st.session_state["면제기간_입력"] = int(data.get("면제기간_개월", 36))
 
-    금리목록 = data.get("금리스케줄") or []
-    st.session_state["금리_원본"] = [dict(r) for r in 금리목록] if 금리목록 else [dict(r) for r in 기본_금리]
+    # ※ 빈 목록([])과 '항목 없음'(키 자체가 없음)을 구분합니다.
+    #   예전에는 둘 다 기본값으로 되돌려서, 금리 스케줄을 지우고 저장해도
+    #   다음에 열면 "61회차 4.2%" 가 계속 되살아났습니다.
+    금리목록 = data.get("금리스케줄")
+    st.session_state["금리_원본"] = ([dict(r) for r in 금리목록] if 금리목록 is not None
+                                 else [dict(r) for r in 기본_금리])
 
+    원본중도 = data.get("중도상환목록")
     중도목록 = []
-    for r in (data.get("중도상환목록") or []):
+    for r in (원본중도 or []):
         항목 = dict(r)
         # 옛 버전 키 이름도 받아줍니다.
         if "이자(직접입력, 선택)" in 항목:
@@ -155,7 +160,8 @@ def _설정_적용(data):
         항목.setdefault("이자(직접입력)", None)
         항목.setdefault("수수료(직접입력)", None)
         중도목록.append(항목)
-    st.session_state["중도_원본"] = 중도목록 if 중도목록 else [dict(r) for r in 기본_중도]
+    st.session_state["중도_원본"] = (중도목록 if 원본중도 is not None
+                                 else [dict(r) for r in 기본_중도])
 
     # ★ 표 위젯 초기화 (이걸 안 하면 이전 편집 내용이 새 자료 위에 다시 덮여
     #    행이 중복되거나 사라지는 현상이 생깁니다)
@@ -215,8 +221,13 @@ st.caption("공휴일 목록은 2025~2026년까지 반영되어 있습니다. �
 # ==========================================================================
 st.subheader("2. 금리 스케줄")
 st.caption("몇 회차부터 금리가 바뀌는지 추가하세요. 1회차를 따로 넣지 않으면 위의 최초 연이율이 자동 적용됩니다.")
+if not st.session_state["금리_원본"]:
+    st.caption("현재 등록된 금리 변동이 없습니다. 최초 연이율이 끝까지 적용됩니다.")
 
-금리_기준df = pd.DataFrame(st.session_state["금리_원본"] or 기본_금리)
+# 비어 있으면 빈 표를 그대로 보여줍니다 (기본값을 다시 넣지 않습니다).
+금리_기준df = pd.DataFrame(st.session_state["금리_원본"], columns=["시작회차", "금리(%)"])
+for _열 in ("시작회차", "금리(%)"):
+    금리_기준df[_열] = pd.to_numeric(금리_기준df[_열], errors="coerce")
 금리df = st.data_editor(
     금리_기준df,
     num_rows="dynamic",
@@ -233,7 +244,8 @@ st.caption("몇 회차부터 금리가 바뀌는지 추가하세요. 1회차를 
 # ==========================================================================
 st.subheader("3. 중도상환 목록")
 
-중도_기준df = pd.DataFrame(st.session_state["중도_원본"] or 기본_중도)
+중도_기준df = pd.DataFrame(st.session_state["중도_원본"],
+                        columns=["날짜", "금액", "방식", "이자(직접입력)", "수수료(직접입력)"])
 for 열, 기본 in (("날짜", None), ("금액", 0), ("방식", "기간단축형"),
               ("이자(직접입력)", None), ("수수료(직접입력)", None)):
     if 열 not in 중도_기준df.columns:
