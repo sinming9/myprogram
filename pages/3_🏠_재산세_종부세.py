@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import sys
 
@@ -7,6 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import importer  # noqa: E402
 import storage  # noqa: E402
 import ui  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
@@ -36,11 +38,17 @@ st.caption("보유 부동산별 공시가격·지분을 넣으면 7월/9월 재�
 }
 
 
-def _자료_불러오기():
-    저장 = storage.불러오기("property_tax", None) or {}
+def _자료_정리(저장):
+    """저장된 값을 화면에서 쓸 형태로 다듬습니다.
+
+    ※ '부동산' 이 빈 목록([])인 것과 아예 없는 것을 구분합니다.
+      예전에는 둘 다 기본값으로 되돌려서, 부동산을 다 지우고 저장해도
+      다시 열면 '우리집 5억' 이 계속 되살아났습니다.
+    """
+    저장 = 저장 or {}
     자료 = dict(기본_자료)
     자료.update({k: v for k, v in 저장.items() if k in 기본_자료})
-    if not 자료.get("부동산"):
+    if 저장.get("부동산") is None:
         자료["부동산"] = [dict(r) for r in 기본_부동산]
     if 자료.get("age_key") not in AGE_OPTIONS:
         자료["age_key"] = list(AGE_OPTIONS)[0]
@@ -49,10 +57,25 @@ def _자료_불러오기():
     return 자료
 
 
+def _자료_불러오기():
+    return _자료_정리(storage.불러오기("property_tax", None))
+
+
 # 두 키를 각각 초기화 (한쪽만 들어와도 KeyError 가 나지 않도록)
 if "재산세_자료" not in st.session_state:
     st.session_state["재산세_자료"] = _자료_불러오기()
 st.session_state.setdefault("재산세_표버전", 0)
+
+# 올린 설정 파일 적용 — 입력칸을 만들기 "전"에 처리합니다.
+_대기 = st.session_state.pop("_재산세_적용대기", None)
+if _대기 is not None:
+    st.session_state["재산세_자료"] = _자료_정리(_대기)
+    st.session_state["재산세_표버전"] += 1
+    st.session_state["_재산세_불러옴"] = True
+    자료 = st.session_state["재산세_자료"]
+
+if st.session_state.pop("_재산세_불러옴", False):
+    st.success("설정을 불러왔습니다.", icon="📂")
 
 자료 = st.session_state["재산세_자료"]
 
@@ -70,12 +93,9 @@ st.sidebar.page_link("pages/8_📥_자료_가져오기.py", label="예전 자료
 # ==========================================================================
 st.subheader("1. 보유 부동산")
 
-기준df = pd.DataFrame(자료["부동산"])
-for 열, 기본 in (("이름", ""), ("공시가격(만원)", 0.0), ("지분(%)", 100.0),
-              ("실제 7월 고지액(선택)", None)):
-    if 열 not in 기준df.columns:
-        기준df[열] = 기본
-기준df = 기준df[["이름", "공시가격(만원)", "지분(%)", "실제 7월 고지액(선택)"]]
+# 비어 있으면 빈 표를 그대로 보여줍니다 (기본값을 다시 넣지 않습니다).
+기준df = pd.DataFrame(자료["부동산"],
+                    columns=["이름", "공시가격(만원)", "지분(%)", "실제 7월 고지액(선택)"])
 for 열 in ("공시가격(만원)", "지분(%)", "실제 7월 고지액(선택)"):
     기준df[열] = pd.to_numeric(기준df[열], errors="coerce")
 
@@ -132,14 +152,6 @@ for _, row in 부동산df.iterrows():
     if not pd.isna(고지):
         고지액합 += float(고지)
 
-if not 목록:
-    st.warning("공시가격이 입력된 부동산이 없습니다. 위 표에 한 줄 이상 입력해 주세요.", icon="📝")
-    st.stop()
-
-결과 = calculate(목록, is_one, int(house_count),
-                AGE_OPTIONS[age_key], HOLD_OPTIONS[hold_key],
-                고지액합 if 고지액합 > 0 else None)
-
 # 현재 입력 상태를 세션에 반영 (저장 버튼을 누르면 파일로 기록)
 자료.update({
     "부동산": [{"이름": str(r.get("이름") or ""),
@@ -154,6 +166,65 @@ if not 목록:
     "hold_key": hold_key,
 })
 
+
+st.divider()
+st.subheader("저장 / 불러오기")
+
+if st.button("💾 입력값만 저장 (기록 없이)", width="stretch"):
+    성공, 메시지 = storage.저장하기("property_tax", 자료)
+    (st.success if 성공 else st.error)(메시지)
+
+with st.expander("⬇️⬆️ 설정 파일로 내보내기 / 불러오기 (다른 기기로 옮길 때)"):
+    st.download_button(
+        "현재 설정 JSON 내려받기",
+        data=json.dumps(자료, ensure_ascii=False, indent=2, default=str),
+        file_name=f"재산세_설정_{datetime.date.today().isoformat()}.json",
+        mime="application/json",
+        width="stretch",
+    )
+    올린것 = st.file_uploader("설정 JSON 올리기", type=["json"], key="재산세_upload")
+    if 올린것 is not None and st.button("올린 설정 적용", width="stretch",
+                                     key="재산세_적용"):
+        # ※ 여기서 바로 값을 바꾸면 위쪽 입력칸이 이미 만들어진 뒤라
+        #   문제가 생길 수 있어, 다음 실행 맨 위에서 적용합니다.
+        데이터, 종류, 오류 = importer.파일_읽기(올린것)
+        if 오류:
+            st.error(f"불러오기 실패: {오류}")
+        elif 종류 == "property_tax_settings":
+            # 예전 tkinter 계산기가 만든 property_tax_settings.json 도 받습니다.
+            변환 = importer.재산세_설정_변환(데이터)
+            변환["history"] = 자료.get("history", [])
+            st.session_state["_재산세_적용대기"] = 변환
+            st.rerun()
+        elif 종류 == "property_tax_history":
+            새자료 = dict(자료)
+            새자료["history"] = importer.재산세_기록_변환(데이터)
+            st.session_state["_재산세_적용대기"] = 새자료
+            st.rerun()
+        elif isinstance(데이터, dict) and "부동산" in 데이터:
+            st.session_state["_재산세_적용대기"] = 데이터
+            st.rerun()
+        else:
+            st.error("재산세 설정 파일이 아닌 것 같습니다. "
+                     "'📥 자료 가져오기' 페이지에서 올려보세요.")
+    st.caption("예전 계산기의 `property_tax_settings.json` / "
+               "`property_tax_history.json` 도 그대로 올릴 수 있습니다.")
+
+
+# ※ 부동산이 하나도 없어도 여기서 멈추지 않습니다.
+#   예전에는 st.stop() 으로 끝내버려서, 표를 비우면 저장 버튼도
+#   파일 불러오기도 화면에 나오지 않았습니다. (불러올 방법이 없어짐)
+if not 목록:
+    st.divider()
+    st.info("공시가격이 입력된 부동산이 없습니다. 위 표에 한 줄 이상 넣거나, "
+            "위의 **설정 파일로 내보내기 / 불러오기** 에서 파일을 올려주세요.", icon="📝")
+    st.stop()
+
+결과 = calculate(목록, is_one, int(house_count),
+                AGE_OPTIONS[age_key], HOLD_OPTIONS[hold_key],
+                고지액합 if 고지액합 > 0 else None)
+
+# 현재 입력 상태를 세션에 반영 (저장 버튼을 누르면 파일로 기록)
 st.divider()
 st.subheader("연간 납부 예정액")
 ui.카드_줄([
@@ -223,14 +294,11 @@ st.subheader("연도별 기록")
 
 올해 = datetime.date.today().year
 b1, b2 = st.columns([1, 1])
-기록연도 = b1.number_input("기록할 연도", min_value=2000, max_value=2100, value=올해, step=1)
+기록연도 = b1.number_input("기록할 연도", min_value=2000, max_value=2100,
+                       value=올해, step=1)
 if b2.button("📅 이 결과를 연도별 기록에 저장", type="primary", width="stretch"):
     자료["history"] = add_or_update_history(
         자료.get("history", []), int(기록연도), 결과, datetime.date.today().isoformat())
-    성공, 메시지 = storage.저장하기("property_tax", 자료)
-    (st.success if 성공 else st.error)(메시지)
-
-if st.button("💾 입력값만 저장 (기록 없이)", width="stretch"):
     성공, 메시지 = storage.저장하기("property_tax", 자료)
     (st.success if 성공 else st.error)(메시지)
 
