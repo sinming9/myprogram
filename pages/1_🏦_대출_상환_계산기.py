@@ -162,6 +162,21 @@ def _설정_적용(data):
     st.session_state["표_버전"] += 1
 
 
+# 올린 설정 파일 적용 — 반드시 입력칸(위젯)을 만들기 "전"에 처리해야 합니다.
+_대기 = st.session_state.pop("_대출_적용대기", None)
+if _대기 is not None:
+    try:
+        _설정_적용(_대기)
+        st.session_state["_대출_불러옴"] = True
+    except Exception as e:  # noqa: BLE001
+        st.session_state["_대출_불러오기오류"] = str(e)
+
+if st.session_state.pop("_대출_불러옴", False):
+    st.success("설정을 불러왔습니다.", icon="📂")
+_오류 = st.session_state.pop("_대출_불러오기오류", None)
+if _오류:
+    st.error(f"불러오기 실패: {_오류}")
+
 # 이 브라우저 세션에서 처음 열었으면 저장된 설정을 자동으로 불러오기
 if not st.session_state.get("_대출_자동로드", False):
     st.session_state["_대출_자동로드"] = True
@@ -310,12 +325,16 @@ with st.expander("⬇️⬆️ 설정 파일로 내보내기 / 불러오기 (다
     )
     업로드 = st.file_uploader("설정 JSON 올리기", type=["json"], key="loan_upload")
     if 업로드 is not None and st.button("올린 설정 적용", width="stretch"):
+        # ※ 여기서 바로 _설정_적용() 을 부르면 안 됩니다.
+        #   위쪽 입력칸(원금_입력 등)이 이미 만들어진 뒤라서
+        #   "cannot be modified after the widget ... is instantiated" 오류가 납니다.
+        #   그래서 읽어만 두고, 다음 실행 맨 위(위젯이 만들어지기 전)에서 적용합니다.
         try:
-            _설정_적용(json.load(업로드))
-            st.success("불러왔습니다.")
-            st.rerun()
+            st.session_state["_대출_적용대기"] = json.load(업로드)
         except Exception as e:  # noqa: BLE001
-            st.error(f"불러오기 실패: {e}")
+            st.error(f"불러오기 실패: 파일을 읽을 수 없습니다 ({e})")
+        else:
+            st.rerun()
 
 # ==========================================================================
 # 결과
