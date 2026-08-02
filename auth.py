@@ -20,7 +20,7 @@
 """
 
 # 이 파일이 최신인지 확인하는 표시. 모든 공용 모듈이 같아야 합니다.
-모듈버전 = "2026-08-02c"
+모듈버전 = "2026-08-02e"
 
 
 import hashlib
@@ -56,8 +56,37 @@ def _비밀번호_확인(입력: str) -> bool:
 
 
 def _기본비밀번호_사용중() -> bool:
+    if not _비밀번호_설정됨():
+        return False        # 비밀번호를 아예 안 쓰기로 한 경우
     return (not _설정값("password_sha256")
             and str(_설정값("password", 기본_비밀번호)) == 기본_비밀번호)
+
+
+def _참인가(값) -> bool:
+    return str(값).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _비밀번호_설정됨() -> bool:
+    return bool(_설정값("password_sha256")) or bool(_설정값("password"))
+
+
+def _손님허용() -> bool:
+    """비밀번호 없이 들어온 사람을 손님(Guest)으로 받아들일지."""
+    명시 = _설정값("guest_ok")
+    if 명시 is not None:
+        return _참인가(명시)
+    if not _비밀번호_설정됨():
+        return True                    # 비밀번호가 없으면 막을 방법이 없습니다
+    return bool(_설정값("url_key"))     # 주소 열쇠가 있으면 손님도 받습니다
+
+
+def 역할() -> str:
+    """'master' 또는 'guest'. 로그인 전이면 'guest'."""
+    return st.session_state.get("_역할", "guest")
+
+
+def 주인인가() -> bool:
+    return 역할() == "master"
 
 
 def _URL열쇠_통과() -> bool:
@@ -125,7 +154,7 @@ def _세션_유효한가() -> bool:
 필요기능 = {
     "ui": ["모바일_스타일", "테마_안내", "페이지_메뉴", "카드_줄", "원"],
     "storage": ["불러오기", "저장하기", "저장소_사이드바", "백업_사이드바",
-               "임시서버_안내"],
+               "임시서버_안내", "손님인가"],
     "app_kit": ["시작", "날짜로", "숫자로", "표만들기"],
     "addons": ["전체_불러오기", "정상_목록"],
     "importer": ["파일_읽기", "요약"],
@@ -216,17 +245,25 @@ def require_login(page_title: str = "개인 대시보드", page_icon: str = "�
     if _세션_유효한가():
         return
 
-    생략, 막은이유 = _로그인_생략()
-    if 생략:
+    def _입장(역할값, 방식):
         st.session_state["_인증됨"] = True
         st.session_state["_로그인시각"] = time.time()
-        st.session_state["_로그인방식"] = "생략"
+        st.session_state["_역할"] = 역할값
+        st.session_state["_로그인방식"] = 방식
+
+    # 1) 주소에 열쇠가 있으면 주인(Master)
+    if _URL열쇠_통과():
+        _입장("master", "주소열쇠")
         return
 
-    if _URL열쇠_통과():
-        st.session_state["_인증됨"] = True
-        st.session_state["_로그인시각"] = time.time()
-        st.session_state["_로그인방식"] = "주소열쇠"
+    생략, 막은이유 = _로그인_생략()
+    if 생략:
+        _입장("master", "생략")
+        return
+
+    # 2) 손님(Guest)으로 그냥 들여보내기
+    if _손님허용():
+        _입장("guest", "손님")
         return
 
     st.title("🔒 로그인")
@@ -261,6 +298,8 @@ def require_login(page_title: str = "개인 대시보드", page_icon: str = "�
             _실패기록["locked_until"] = 0.0
             st.session_state["_인증됨"] = True
             st.session_state["_로그인시각"] = time.time()
+            st.session_state["_역할"] = "master"
+            st.session_state["_로그인방식"] = "비밀번호"
             st.rerun()
         else:
             _실패기록["count"] += 1
@@ -276,22 +315,76 @@ def require_login(page_title: str = "개인 대시보드", page_icon: str = "�
     st.stop()
 
 
+def _가리기(값: str, 앞=4, 뒤=3) -> str:
+    """열쇠를 부분만 보여줍니다. abcdefghijk → abcd••••••ijk"""
+    값 = str(값)
+    if len(값) <= 앞 + 뒤:
+        return "•" * len(값)
+    return 값[:앞] + "•" * (len(값) - 앞 - 뒤) + 값[-뒤:]
+
+
 def 로그아웃_버튼():
+    """사이드바에 현재 역할 표시 + 필요한 버튼들."""
+    주인 = 주인인가()
     방식 = st.session_state.get("_로그인방식")
-    if 방식 != "생략":
-        if st.sidebar.button("🚪 로그아웃", use_container_width=True):
-            for 키 in ("_인증됨", "_로그인시각", "_로그인방식"):
+
+    if 주인:
+        st.sidebar.success("👑 Master — 저장할 수 있습니다", icon="👑")
+    else:
+        st.sidebar.info("👤 Guest — 저장은 이번 접속에서만 유지됩니다", icon="👤")
+
+    # 손님이 비밀번호로 주인이 되는 길 (비밀번호를 설정해 둔 경우에만)
+    if not 주인 and _비밀번호_설정됨():
+        with st.sidebar.expander("🔑 Master 로 전환"):
+            with st.form("_승격"):
+                pw = st.text_input("비밀번호", type="password")
+                눌림 = st.form_submit_button("전환", use_container_width=True)
+            if 눌림:
+                남은잠금 = _실패기록["locked_until"] - time.time()
+                if 남은잠금 > 0:
+                    st.error(f"잠겨 있습니다. {int(남은잠금) + 1}초 후 다시 시도하세요.")
+                elif pw and _비밀번호_확인(pw):
+                    _실패기록["count"] = 0
+                    st.session_state["_역할"] = "master"
+                    st.session_state["_로그인방식"] = "비밀번호"
+                    st.rerun()
+                else:
+                    _실패기록["count"] += 1
+                    if 최대_실패횟수 - _실패기록["count"] <= 0:
+                        _실패기록["locked_until"] = time.time() + 잠금_초
+                        _실패기록["count"] = 0
+                        st.error(f"{잠금_초 // 60}분간 잠깁니다.")
+                    else:
+                        time.sleep(0.7)
+                        st.error("비밀번호가 올바르지 않습니다.")
+
+    if 주인 and 방식 != "생략":
+        if st.sidebar.button("🚪 Guest 로 나가기", use_container_width=True):
+            for 키 in ("_역할", "_로그인방식"):
                 st.session_state.pop(키, None)
+            st.session_state["_역할"] = "guest"
+            for 키 in list(st.session_state.keys()):
+                if 키.startswith(("급여_", "재산세_", "달걀_", "중도_", "금리_", "_gist_")):
+                    st.session_state.pop(키, None)
             st.rerun()
 
     열쇠 = _설정값("url_key")
-    if 열쇠 and 방식 != "생략":
+    if 열쇠 and 주인:
         with st.sidebar.expander("🔗 비밀번호 없이 들어오기"):
-            st.caption("아래 주소를 휴대폰 홈 화면에 추가하면 누를 때마다 바로 열립니다.")
-            st.code(f"?k={열쇠}", language=None)
-            st.caption("앱 주소 뒤에 위 내용을 붙이세요. 예)\n"
-                       "https://내앱.streamlit.app/?k=... \n\n"
-                       "주소에 열쇠가 들어가니 남에게 보내지 마세요.")
+            # ※ 열쇠는 기본으로 가려둡니다. 화면 캡처로 새어나갈 수 있습니다.
+            st.caption("휴대폰 홈 화면에 추가해두면 누를 때마다 Master 로 열립니다. "
+                       "처음 한 번만 확인하면 됩니다.")
+            st.code(f"?k={_가리기(열쇠)}", language=None)
+            if len(str(열쇠)) < 20:
+                st.warning("열쇠가 짧습니다. 30자 이상으로 바꾸세요.", icon="⚠️")
+            if st.checkbox("열쇠 보기", key="_열쇠보기"):
+                st.warning("화면 캡처나 화면 공유 중이면 지금 끄세요.", icon="📸")
+                st.code(f"?k={열쇠}", language=None)
+                st.caption("앱 주소 뒤에 위 내용을 붙이세요.\n"
+                           "예) https://내앱.streamlit.app/?k=...")
+            else:
+                st.caption("전체 열쇠는 Streamlit Cloud 의 "
+                           "Settings → Secrets 에서도 볼 수 있습니다.")
 
 
 def 비밀번호_해시_만들기(평문: str) -> str:
