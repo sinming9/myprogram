@@ -24,7 +24,7 @@ myapps/ 폴더 사용법을 보세요 (myapps/예제_적금_계산기.py 참고)
 """
 
 # 이 파일이 최신인지 확인하는 표시. 모든 공용 모듈이 같아야 합니다.
-모듈버전 = "2026-08-02h"
+모듈버전 = "2026-08-02i"
 
 
 import re
@@ -38,7 +38,7 @@ import ui
 from auth import require_login, 로그아웃_버튼
 
 __all__ = [
-    "시작", "날짜로", "숫자로", "정수로", "표만들기",
+    "시작", "날짜로", "숫자로", "정수로", "표만들기", "저장_불러오기",
     "원", "만원", "억", "카드", "카드_줄",
     "저장", "불러오기", "백업_사이드바",
     "st", "pd", "ui", "storage", "date", "datetime",
@@ -172,3 +172,79 @@ def 표만들기(자료목록, 열정의):
         else:
             df[열] = df[열].astype("object").where(df[열].notna(), "")
     return df[list(열정의)]
+
+
+# ==========================================================================
+# 저장 / 불러오기 구역  (모든 페이지에서 같은 모양)
+# ==========================================================================
+
+def 저장_불러오기(저장키: str, 현재값, 파일접두: str, 적용대기키: str,
+              파일해석=None, 도움말: str = ""):
+    """페이지 맨 아래에 붙이는 공통 저장·불러오기 구역.
+
+    저장키     : storage 에 쓸 키 (예: "loan", "property_tax")
+    현재값     : 지금 화면의 설정 (JSON 으로 만들 수 있는 값)
+    파일접두   : 내려받을 파일 이름 앞부분 (예: "대출계산기_설정")
+    적용대기키 : 올린 파일을 담아둘 session_state 키.
+                페이지 맨 위에서 꺼내 적용해야 합니다.
+                (위젯이 만들어진 뒤에 값을 바꾸면 Streamlit 이 막습니다)
+    파일해석   : 올린 파일을 해석하는 함수. (파일) -> (데이터, 오류메시지)
+                없으면 그냥 JSON 으로 읽습니다.
+    """
+    import json
+    from datetime import date as _date
+
+    st.divider()
+    st.subheader("💾 저장 / 불러오기")
+
+    c1, c2 = st.columns(2)
+    if c1.button("💾 이 설정을 기본값으로 저장", type="primary",
+                 width="stretch", key=f"_저장버튼_{저장키}"):
+        성공, 메시지 = storage.저장하기(저장키, 현재값)
+        (st.success if 성공 else st.error)(메시지)
+
+    c2.download_button(
+        "⬇️ 설정 파일 내려받기",
+        data=json.dumps(현재값, ensure_ascii=False, indent=2, default=str),
+        file_name=f"{파일접두}_{_date.today().isoformat()}.json",
+        mime="application/json",
+        width="stretch",
+        key=f"_내려받기_{저장키}",
+    )
+
+    올린것 = st.file_uploader("⬆️ 설정 파일 올리기", type=["json"],
+                           key=f"_업로드_{저장키}")
+    if 올린것 is not None:
+        if st.button("올린 설정 적용", width="stretch", key=f"_적용_{저장키}"):
+            if 파일해석:
+                데이터, 오류 = 파일해석(올린것)
+            else:
+                try:
+                    데이터, 오류 = json.load(올린것), None
+                except Exception as e:  # noqa: BLE001
+                    데이터, 오류 = None, f"파일을 읽을 수 없습니다 ({e})"
+            if 오류:
+                st.error(f"불러오기 실패: {오류}")
+            else:
+                st.session_state[적용대기키] = 데이터
+                st.rerun()
+
+    if 도움말:
+        st.caption(도움말)
+
+
+def 불러온것_적용(적용대기키: str, 적용함수):
+    """페이지 맨 위(위젯 만들기 전)에서 호출. 올린 설정을 실제로 반영합니다."""
+    대기 = st.session_state.pop(적용대기키, None)
+    if 대기 is not None:
+        try:
+            적용함수(대기)
+            st.session_state[f"{적용대기키}_완료"] = True
+        except Exception as e:  # noqa: BLE001
+            st.session_state[f"{적용대기키}_오류"] = str(e)
+
+    if st.session_state.pop(f"{적용대기키}_완료", False):
+        st.success("설정을 불러왔습니다.", icon="📂")
+    오류 = st.session_state.pop(f"{적용대기키}_오류", None)
+    if 오류:
+        st.error(f"불러오기 실패: {오류}")
