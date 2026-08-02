@@ -26,7 +26,7 @@ from io import StringIO
 
 import pandas as pd
 
-모듈버전 = "2026-07-31"
+모듈버전 = "2026-08-02e"
 
 AVG_COLORS = {
     "3년 평균": "#9AA3AF",
