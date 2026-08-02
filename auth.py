@@ -20,7 +20,7 @@
 """
 
 # 이 파일이 최신인지 확인하는 표시. 모든 공용 모듈이 같아야 합니다.
-모듈버전 = "2026-08-02"
+모듈버전 = "2026-08-02c"
 
 
 import hashlib
@@ -33,7 +33,7 @@ import streamlit as st
 기본_비밀번호 = "changeme123"      # secrets.toml 이 없을 때만 쓰이는 임시 비밀번호
 최대_실패횟수 = 10
 잠금_초 = 300                       # 5분
-세션_유효시간_초 = 12 * 60 * 60     # 12시간
+세션_유효시간_초 = 30 * 24 * 60 * 60  # 30일 (브라우저 탭을 닫으면 어차피 초기화됩니다)
 
 # 모듈 전역 → 같은 서버 프로세스의 모든 접속자에게 공통 적용 (무작위 대입 방어)
 _실패기록 = {"count": 0, "locked_until": 0.0}
@@ -52,12 +52,59 @@ def _비밀번호_확인(입력: str) -> bool:
         계산 = hashlib.sha256(입력.encode("utf-8")).hexdigest()
         return hmac.compare_digest(계산.lower(), str(해시).strip().lower())
     정답 = str(_설정값("password", 기본_비밀번호))
-    return hmac.compare_digest(입력, 정답)
+    return hmac.compare_digest(입력.encode("utf-8"), 정답.encode("utf-8"))
 
 
 def _기본비밀번호_사용중() -> bool:
     return (not _설정값("password_sha256")
             and str(_설정값("password", 기본_비밀번호)) == 기본_비밀번호)
+
+
+def _URL열쇠_통과() -> bool:
+    """주소 뒤에 ?k=열쇠 가 붙어 있으면 비밀번호 없이 통과시킵니다.
+
+    secrets 에 url_key 를 넣어두고, 아래 주소를 휴대폰 홈 화면에 추가하면
+    누를 때마다 바로 들어갑니다.
+        https://내앱.streamlit.app/?k=열쇠
+
+    ※ 주소에 열쇠가 들어가므로 브라우저 기록에 남습니다.
+      비밀번호를 직접 치는 것보다는 약하니, 열쇠를 길게 만드세요.
+    """
+    열쇠 = _설정값("url_key")
+    if not 열쇠:
+        return False
+    try:
+        받은 = st.query_params.get("k")
+    except Exception:  # noqa: BLE001
+        return False
+    if not 받은:
+        return False
+    # ※ hmac.compare_digest 는 비ASCII 문자열에서 TypeError 를 냅니다.
+    #   주소에 한글 등이 들어와도 죽지 않도록 바이트로 바꿔서 비교합니다.
+    return hmac.compare_digest(str(받은).encode("utf-8"), str(열쇠).encode("utf-8"))
+
+
+def _로그인_생략() -> tuple:
+    """secrets 에 no_login = true 면 로그인을 아예 건너뜁니다.
+
+    단, 자료 저장소(Gist)가 설정되어 있으면 위험하므로 막습니다.
+    누구나 들어와서 내 Gist 를 읽고 쓸 수 있게 되기 때문입니다.
+    (생략여부, 막은이유) 반환
+    """
+    값 = str(_설정값("no_login", "")).strip().lower()
+    if 값 not in ("true", "1", "yes", "on"):
+        return False, None
+    try:
+        import storage
+        if storage.저장방식() == "gist":
+            return False, ("no_login 이 켜져 있지만 GitHub Gist 저장소도 설정되어 "
+                          "있습니다. 이대로면 누구나 들어와서 자료를 보고 고칠 수 "
+                          "있어서 로그인을 건너뛰지 않았습니다.\n\n"
+                          "자료를 파일로만 관리하시려면 secrets 에서 "
+                          "`github_token` 과 `gist_id` 두 줄을 지우세요.")
+    except Exception:  # noqa: BLE001
+        pass
+    return True, None
 
 
 def _세션_유효한가() -> bool:
@@ -152,6 +199,16 @@ def require_login(page_title: str = "개인 대시보드", page_icon: str = "�
     except Exception:
         pass  # 이미 설정된 경우 무시
 
+    # 로그인 화면에도 공통 CSS 를 입힙니다.
+    #  ※ 아래에서 st.stop() 으로 멈추기 때문에, 페이지의 ui.모바일_스타일() 은
+    #    로그인 화면에서는 실행되지 않습니다. 그래서 여기서 직접 넣습니다.
+    #    (안 넣으면 비밀번호 보기 아이콘이 "visibility" 글자로 노출됩니다)
+    try:
+        import ui as _ui
+        _ui.모바일_스타일()
+    except Exception:  # noqa: BLE001
+        pass
+
     낡은것 = _버전_점검()
     if 낡은것:
         _낡은모듈_안내(낡은것)
@@ -159,11 +216,27 @@ def require_login(page_title: str = "개인 대시보드", page_icon: str = "�
     if _세션_유효한가():
         return
 
+    생략, 막은이유 = _로그인_생략()
+    if 생략:
+        st.session_state["_인증됨"] = True
+        st.session_state["_로그인시각"] = time.time()
+        st.session_state["_로그인방식"] = "생략"
+        return
+
+    if _URL열쇠_통과():
+        st.session_state["_인증됨"] = True
+        st.session_state["_로그인시각"] = time.time()
+        st.session_state["_로그인방식"] = "주소열쇠"
+        return
+
     st.title("🔒 로그인")
     st.caption("개인 전용 대시보드입니다. 비밀번호를 입력하세요.")
 
     if st.session_state.pop("_세션만료", False):
         st.info("일정 시간이 지나 자동으로 로그아웃되었습니다. 다시 로그인해 주세요.", icon="⏱️")
+
+    if 막은이유:
+        st.warning(막은이유, icon="⚠️")
 
     if _기본비밀번호_사용중():
         st.warning(
@@ -204,10 +277,21 @@ def require_login(page_title: str = "개인 대시보드", page_icon: str = "�
 
 
 def 로그아웃_버튼():
-    if st.sidebar.button("🚪 로그아웃", use_container_width=True):
-        for 키 in ("_인증됨", "_로그인시각"):
-            st.session_state.pop(키, None)
-        st.rerun()
+    방식 = st.session_state.get("_로그인방식")
+    if 방식 != "생략":
+        if st.sidebar.button("🚪 로그아웃", use_container_width=True):
+            for 키 in ("_인증됨", "_로그인시각", "_로그인방식"):
+                st.session_state.pop(키, None)
+            st.rerun()
+
+    열쇠 = _설정값("url_key")
+    if 열쇠 and 방식 != "생략":
+        with st.sidebar.expander("🔗 비밀번호 없이 들어오기"):
+            st.caption("아래 주소를 휴대폰 홈 화면에 추가하면 누를 때마다 바로 열립니다.")
+            st.code(f"?k={열쇠}", language=None)
+            st.caption("앱 주소 뒤에 위 내용을 붙이세요. 예)\n"
+                       "https://내앱.streamlit.app/?k=... \n\n"
+                       "주소에 열쇠가 들어가니 남에게 보내지 마세요.")
 
 
 def 비밀번호_해시_만들기(평문: str) -> str:

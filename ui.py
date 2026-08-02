@@ -10,7 +10,7 @@
 """
 
 # 이 파일이 최신인지 확인하는 표시. 모든 공용 모듈이 같아야 합니다.
-모듈버전 = "2026-08-02"
+모듈버전 = "2026-08-02c"
 
 
 import streamlit as st
@@ -75,18 +75,26 @@ _CSS = r"""
   line-height: 1;
 }
 [data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"] {
-  padding: 6px 10px !important;
-}
+[data-testid="collapsedControl"] { padding: 6px 10px !important; }
 
 /* 사이드바 닫는 버튼 → × */
-[data-testid="stSidebarCollapseButton"] span {
-  font-size: 0 !important;
-}
+[data-testid="stSidebarCollapseButton"] span { font-size: 0 !important; }
 [data-testid="stSidebarCollapseButton"] span::after {
   content: "×";
   font-family: inherit !important;
   font-size: 24px;
+}
+
+/* 비밀번호 보기/숨기기 → 눈 모양 */
+[data-baseweb="input"] button span,
+[data-testid="stTextInput"] button span {
+  font-size: 0 !important;
+}
+[data-baseweb="input"] button span::after,
+[data-testid="stTextInput"] button span::after {
+  content: "👁";
+  font-family: inherit !important;
+  font-size: 17px;
 }
 
 /* 펼치기(expander) 화살표 → ▾ */
@@ -100,6 +108,19 @@ _CSS = r"""
   font-family: inherit !important;
   font-size: 13px;
   opacity: .7;
+}
+
+/* 위에서 못 잡은 나머지 아이콘 - 폰트가 막혔을 때 이름이 글자로 튀어나오는
+   것보다는 안 보이는 편이 낫습니다. 버튼에는 글자 라벨이 따로 있습니다. */
+span[data-testid="stIconMaterial"] {
+  font-size: 0 !important;
+  min-width: 0 !important;
+}
+span[data-testid="stIconMaterial"]::after {
+  content: "•";
+  font-family: inherit !important;
+  font-size: 12px;
+  opacity: .45;
 }
 
 /* 화면 안 이동 메뉴 */
