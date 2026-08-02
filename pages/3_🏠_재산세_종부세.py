@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import importer  # noqa: E402
 import storage  # noqa: E402
 import ui  # noqa: E402
+from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines.property_tax import (AGE_OPTIONS, HOLD_OPTIONS, PropertyRow,  # noqa: E402
                                   add_or_update_history, calculate,
@@ -67,15 +68,32 @@ if "재산세_자료" not in st.session_state:
 st.session_state.setdefault("재산세_표버전", 0)
 
 # 올린 설정 파일 적용 — 입력칸을 만들기 "전"에 처리합니다.
-_대기 = st.session_state.pop("_재산세_적용대기", None)
-if _대기 is not None:
-    st.session_state["재산세_자료"] = _자료_정리(_대기)
-    st.session_state["재산세_표버전"] += 1
-    st.session_state["_재산세_불러옴"] = True
-    자료 = st.session_state["재산세_자료"]
+def _파일해석(파일):
+    """올린 파일을 재산세 설정 형태로. (데이터, 오류) 반환."""
+    데이터, 종류, 오류 = importer.파일_읽기(파일)
+    if 오류:
+        return None, 오류
+    현재 = st.session_state.get("재산세_자료", {})
+    if 종류 == "property_tax_settings":
+        변환 = importer.재산세_설정_변환(데이터)
+        변환["history"] = 현재.get("history", [])
+        return 변환, None
+    if 종류 == "property_tax_history":
+        새것 = dict(현재)
+        새것["history"] = importer.재산세_기록_변환(데이터)
+        return 새것, None
+    if isinstance(데이터, dict) and "부동산" in 데이터:
+        return 데이터, None
+    return None, "재산세 설정 파일이 아닌 것 같습니다."
 
-if st.session_state.pop("_재산세_불러옴", False):
-    st.success("설정을 불러왔습니다.", icon="📂")
+
+def _설정_적용(데이터):
+    st.session_state["재산세_자료"] = _자료_정리(데이터)
+    st.session_state["재산세_표버전"] += 1
+
+
+불러온것_적용("_재산세_적용대기", _설정_적용)
+자료 = st.session_state["재산세_자료"]
 
 자료 = st.session_state["재산세_자료"]
 
@@ -167,57 +185,17 @@ for _, row in 부동산df.iterrows():
 })
 
 
-st.divider()
-st.subheader("저장 / 불러오기")
-
-if st.button("💾 입력값만 저장 (기록 없이)", width="stretch"):
-    성공, 메시지 = storage.저장하기("property_tax", 자료)
-    (st.success if 성공 else st.error)(메시지)
-
-with st.expander("⬇️⬆️ 설정 파일로 내보내기 / 불러오기 (다른 기기로 옮길 때)"):
-    st.download_button(
-        "현재 설정 JSON 내려받기",
-        data=json.dumps(자료, ensure_ascii=False, indent=2, default=str),
-        file_name=f"재산세_설정_{datetime.date.today().isoformat()}.json",
-        mime="application/json",
-        width="stretch",
-    )
-    올린것 = st.file_uploader("설정 JSON 올리기", type=["json"], key="재산세_upload")
-    if 올린것 is not None and st.button("올린 설정 적용", width="stretch",
-                                     key="재산세_적용"):
-        # ※ 여기서 바로 값을 바꾸면 위쪽 입력칸이 이미 만들어진 뒤라
-        #   문제가 생길 수 있어, 다음 실행 맨 위에서 적용합니다.
-        데이터, 종류, 오류 = importer.파일_읽기(올린것)
-        if 오류:
-            st.error(f"불러오기 실패: {오류}")
-        elif 종류 == "property_tax_settings":
-            # 예전 tkinter 계산기가 만든 property_tax_settings.json 도 받습니다.
-            변환 = importer.재산세_설정_변환(데이터)
-            변환["history"] = 자료.get("history", [])
-            st.session_state["_재산세_적용대기"] = 변환
-            st.rerun()
-        elif 종류 == "property_tax_history":
-            새자료 = dict(자료)
-            새자료["history"] = importer.재산세_기록_변환(데이터)
-            st.session_state["_재산세_적용대기"] = 새자료
-            st.rerun()
-        elif isinstance(데이터, dict) and "부동산" in 데이터:
-            st.session_state["_재산세_적용대기"] = 데이터
-            st.rerun()
-        else:
-            st.error("재산세 설정 파일이 아닌 것 같습니다. "
-                     "'📥 자료 가져오기' 페이지에서 올려보세요.")
-    st.caption("예전 계산기의 `property_tax_settings.json` / "
-               "`property_tax_history.json` 도 그대로 올릴 수 있습니다.")
-
-
 # ※ 부동산이 하나도 없어도 여기서 멈추지 않습니다.
 #   예전에는 st.stop() 으로 끝내버려서, 표를 비우면 저장 버튼도
 #   파일 불러오기도 화면에 나오지 않았습니다. (불러올 방법이 없어짐)
 if not 목록:
     st.divider()
     st.info("공시가격이 입력된 부동산이 없습니다. 위 표에 한 줄 이상 넣거나, "
-            "위의 **설정 파일로 내보내기 / 불러오기** 에서 파일을 올려주세요.", icon="📝")
+            "맨 아래 **저장 / 불러오기** 에서 설정 파일을 올려주세요.", icon="📝")
+    저장_불러오기("property_tax", 자료, "재산세_설정", "_재산세_적용대기",
+              파일해석=_파일해석,
+              도움말="예전 계산기의 property_tax_settings.json / "
+                   "property_tax_history.json 도 올릴 수 있습니다.")
     st.stop()
 
 결과 = calculate(목록, is_one, int(house_count),
@@ -293,10 +271,9 @@ st.divider()
 st.subheader("연도별 기록")
 
 올해 = datetime.date.today().year
-b1, b2 = st.columns([1, 1])
-기록연도 = b1.number_input("기록할 연도", min_value=2000, max_value=2100,
+기록연도 = st.number_input("기록할 연도", min_value=2000, max_value=2100,
                        value=올해, step=1)
-if b2.button("📅 이 결과를 연도별 기록에 저장", type="primary", width="stretch"):
+if st.button("📅 이 결과를 연도별 기록에 저장", type="primary", width="stretch"):
     자료["history"] = add_or_update_history(
         자료.get("history", []), int(기록연도), 결과, datetime.date.today().isoformat())
     성공, 메시지 = storage.저장하기("property_tax", 자료)
@@ -347,3 +324,8 @@ st.caption(
     "※ 간이 계산기입니다. 세부담상한제·지역자원시설세·감면 특례 및 지분 소액특례는 반영되어 있지 않습니다. "
     "정확한 세액은 홈택스 모의계산으로 확인하세요."
 )
+
+저장_불러오기("property_tax", 자료, "재산세_설정", "_재산세_적용대기",
+          파일해석=_파일해석,
+          도움말="예전 계산기의 property_tax_settings.json / "
+               "property_tax_history.json 도 올릴 수 있습니다.")

@@ -9,7 +9,8 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import 날짜로, 숫자로, 최대_연도, 최소_연도  # noqa: E402
+from app_kit import (날짜로, 불러온것_적용, 숫자로,  # noqa: E402
+                     저장_불러오기, 최대_연도, 최소_연도)
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines.loan import 스케줄_생성, 요약, 이자정산방식_목록  # noqa: E402
 
@@ -169,19 +170,7 @@ def _설정_적용(data):
 
 
 # 올린 설정 파일 적용 — 반드시 입력칸(위젯)을 만들기 "전"에 처리해야 합니다.
-_대기 = st.session_state.pop("_대출_적용대기", None)
-if _대기 is not None:
-    try:
-        _설정_적용(_대기)
-        st.session_state["_대출_불러옴"] = True
-    except Exception as e:  # noqa: BLE001
-        st.session_state["_대출_불러오기오류"] = str(e)
-
-if st.session_state.pop("_대출_불러옴", False):
-    st.success("설정을 불러왔습니다.", icon="📂")
-_오류 = st.session_state.pop("_대출_불러오기오류", None)
-if _오류:
-    st.error(f"불러오기 실패: {_오류}")
+불러온것_적용("_대출_적용대기", _설정_적용)
 
 # 이 브라우저 세션에서 처음 열었으면 저장된 설정을 자동으로 불러오기
 if not st.session_state.get("_대출_자동로드", False):
@@ -320,39 +309,16 @@ with st.expander("⚙️ 중도상환 계산 옵션 (이자 정산방식 · 수�
 # ==========================================================================
 # 저장 / 계산
 # ==========================================================================
-b1, b2 = st.columns(2)
-계산클릭 = b1.button("📊 계산하기", type="primary", width="stretch")
-
-if b2.button("💾 이 설정을 기본값으로 저장", width="stretch"):
-    성공, 메시지 = storage.저장하기("loan", _설정_딕셔너리(금리df, 중도df))
-    (st.success if 성공 else st.error)(메시지)
-
-with st.expander("⬇️⬆️ 설정 파일로 내보내기 / 불러오기 (다른 기기로 옮길 때)"):
-    st.download_button(
-        "현재 설정 JSON 내려받기",
-        data=json.dumps(_설정_딕셔너리(금리df, 중도df), ensure_ascii=False, indent=2),
-        file_name="대출계산기_설정.json",
-        mime="application/json",
-        width="stretch",
-    )
-    업로드 = st.file_uploader("설정 JSON 올리기", type=["json"], key="loan_upload")
-    if 업로드 is not None and st.button("올린 설정 적용", width="stretch"):
-        # ※ 여기서 바로 _설정_적용() 을 부르면 안 됩니다.
-        #   위쪽 입력칸(원금_입력 등)이 이미 만들어진 뒤라서
-        #   "cannot be modified after the widget ... is instantiated" 오류가 납니다.
-        #   그래서 읽어만 두고, 다음 실행 맨 위(위젯이 만들어지기 전)에서 적용합니다.
-        try:
-            st.session_state["_대출_적용대기"] = json.load(업로드)
-        except Exception as e:  # noqa: BLE001
-            st.error(f"불러오기 실패: 파일을 읽을 수 없습니다 ({e})")
-        else:
-            st.rerun()
+계산클릭 = st.button("📊 계산하기", type="primary", width="stretch")
 
 # ==========================================================================
 # 결과
 # ==========================================================================
 if not 계산클릭:
     st.caption("입력값을 확인한 뒤 '계산하기' 버튼을 눌러주세요.")
+    저장_불러오기("loan", _설정_딕셔너리(금리df, 중도df), "대출계산기_설정",
+              "_대출_적용대기",
+              도움말="다른 기기로 옮기거나 여러 조건을 따로 보관할 때 쓰세요.")
     st.stop()
 
 try:
@@ -473,3 +439,7 @@ with st.expander("📌 계산 방식 설명"):
   명세서 값을 알고 있으면 표의 **이자(직접입력)** / **수수료(직접입력)** 칸에 넣어 정확히 맞출 수 있습니다.
 """
     )
+
+저장_불러오기("loan", _설정_딕셔너리(금리df, 중도df), "대출계산기_설정",
+          "_대출_적용대기",
+          도움말="다른 기기로 옮기거나 여러 조건을 따로 보관할 때 쓰세요.")

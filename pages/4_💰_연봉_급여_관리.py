@@ -7,7 +7,9 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
+import importer  # noqa: E402
 import ui  # noqa: E402
+from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import salary as S  # noqa: E402
 
@@ -27,6 +29,26 @@ st.caption("기록하고, 비교하고, 내 연봉의 실질 가치를 확인하
 #   급여_표버전 이 없어서 KeyError 가 납니다.
 st.session_state.setdefault("급여_자료", storage.불러오기("salary", {}) or {})
 st.session_state.setdefault("급여_표버전", 0)
+
+
+def _파일해석(파일):
+    """올린 파일을 연봉 자료로. 기존 자료와 합칩니다."""
+    데이터, 종류, 오류 = importer.파일_읽기(파일)
+    if 오류:
+        return None, 오류
+    if 종류 != "salary":
+        return None, "연봉 자료 파일이 아닌 것 같습니다."
+    합침, _추가, _덮음 = importer.연봉_합치기(
+        st.session_state.get("급여_자료", {}), 데이터, 덮어쓰기=True)
+    return 합침, None
+
+
+def _설정_적용(데이터):
+    st.session_state["급여_자료"] = 데이터
+    st.session_state["급여_표버전"] += 1
+
+
+불러온것_적용("_급여_적용대기", _설정_적용)
 
 자료 = st.session_state["급여_자료"]
 
@@ -353,3 +375,8 @@ with 탭3:
                 storage.저장하기("salary", 자료)
                 st.session_state["_연도이동"] = 연도
                 st.rerun()
+
+저장_불러오기("salary", 자료, "연봉자료", "_급여_적용대기",
+          파일해석=_파일해석,
+          도움말="올린 파일은 기존 자료와 합쳐집니다. 같은 연도가 있으면 올린 쪽으로 "
+               "덮어씁니다. 연도를 골라서 합치려면 '📥 자료 가져오기' 를 쓰세요.")

@@ -9,6 +9,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
+from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import egg_cycle as EC  # noqa: E402
 
@@ -33,6 +34,16 @@ if "달걀_설정" not in st.session_state:
     st.session_state["달걀_설정"] = 설정
     st.session_state.setdefault("달걀_표버전", 0)
 st.session_state.setdefault("달걀_표버전", 0)
+
+
+def _설정_적용(데이터):
+    기본 = dict(기본설정)
+    기본.update({k: v for k, v in (데이터 or {}).items() if k in 기본설정})
+    st.session_state["달걀_설정"] = 기본
+    st.session_state["달걀_표버전"] += 1
+
+
+불러온것_적용("_달걀_적용대기", _설정_적용)
 설정 = st.session_state["달걀_설정"]
 
 storage.임시서버_안내()
@@ -303,3 +314,6 @@ with st.expander("🔑 자동 조회 설정 (선택)"):
     if st.button("🔄 지금 다시 조회", width="stretch"):
         st.cache_data.clear()
         st.rerun()
+
+저장_불러오기("egg_cycle", 설정, "금리사이클_설정", "_달걀_적용대기",
+          도움말="사이클 밴드와 직접 입력한 금리 이력이 함께 저장됩니다.")
