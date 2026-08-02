@@ -27,9 +27,21 @@ def 데이터_조회(통화이름: str):
     return 환율_가져오기(CURRENCIES[통화이름])
 
 
+# 통화 선택은 본문 맨 위에 둡니다.
+#  ※ 사이드바에 두면 휴대폰에서 메뉴를 열어야 해서 바꾸기가 번거롭습니다.
+짧은이름 = {
+    "미국 달러 (USD)": "🇺🇸 달러",
+    "일본 엔 (JPY)": "🇯🇵 엔",
+    "유로 (EUR)": "🇪🇺 유로",
+    "중국 위안 (CNY)": "🇨🇳 위안",
+    "싱가포르 달러 (SGD)": "🇸🇬 싱달러",
+}
+선택 = st.radio("환전할 통화", list(CURRENCIES), horizontal=True,
+              key="환율_통화", label_visibility="collapsed",
+              format_func=lambda c: 짧은이름.get(c, c))
+
 with st.sidebar:
     st.header("⚙️ 조회 설정")
-    선택 = st.selectbox("환전할 통화", list(CURRENCIES))
     if st.button("🔄 최신 데이터 새로고침", width="stretch"):
         st.cache_data.clear()
         st.rerun()
