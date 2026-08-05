@@ -12,6 +12,7 @@ import ui  # noqa: E402
 from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import egg_cycle as EC  # noqa: E402
+from engines import fedwatch as FW  # noqa: E402
 
 require_login(page_title="금리 사이클", page_icon="🥚", layout="centered")
 ui.모바일_스타일()
@@ -25,7 +26,8 @@ st.caption("코스톨라니 달걀 · 기준금리 위치로 보는 자산 배�
 
 저장키 = "egg_cycle"
 기본설정 = {"country": "KR", "cycle_low": None, "cycle_high": None,
-          "manual_rate": None, "lookback_years": 3, "추가이력": []}
+          "manual_rate": None, "lookback_years": 3, "추가이력": [],
+          "인상성격": "모름", "수동확률": None, "수동방향": "동결"}
 
 if "달걀_설정" not in st.session_state:
     불러온 = storage.불러오기(저장키, {}) or {}
@@ -114,6 +116,114 @@ ui.카드_줄([
 getattr(st, 강조)(f"**이론상 포지션 — {상태.phase.action}**\n\n{상태.phase.note}")
 
 # ==========================================================================
+# 다음 회의 · 시장이 보는 확률
+# ==========================================================================
+st.divider()
+st.subheader("다음 회의")
+
+오늘 = date.today()
+다음금통위 = FW.다음_회의(FW.금통위_일정, 오늘)
+다음FOMC = FW.다음_회의(FW.FOMC_일정, 오늘)
+
+m1, m2 = st.columns(2)
+m1.metric("🇰🇷 금통위",
+          다음금통위.strftime("%m월 %d일") if 다음금통위 else "일정 없음",
+          f"D-{(다음금통위 - 오늘).days}" if 다음금통위 else None, delta_color="off")
+m2.metric("🇺🇸 FOMC",
+          다음FOMC.strftime("%m월 %d일") if 다음FOMC else "일정 없음",
+          f"D-{(다음FOMC - 오늘).days}" if 다음FOMC else None, delta_color="off")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def 미국확률_조회(fred키, 목표상단):
+    return FW.미국_전망(fred_key=fred키, 목표상단=목표상단)
+
+
+def _미국_목표상단():
+    """FRED 키가 없을 때 실효금리를 추정하려면 현재 목표범위 상단이 필요합니다."""
+    if 나라 == "US":
+        return float(상태.rate)
+    미국이력, _출처, _오류 = EC.이력_불러오기("US", None, ())
+    return float(미국이력.latest[1]) if 미국이력.points else None
+
+
+fred키 = None
+for 이름 in ("FRED_API_KEY", "fred_api_key"):
+    try:
+        fred키 = st.secrets[이름]
+        break
+    except Exception:  # noqa: BLE001
+        fred키 = os.environ.get(이름.upper())
+        if fred키:
+            break
+
+예측 = None
+with st.spinner("연방기금 선물에서 확률을 계산하는 중이에요..."):
+    자동, 조회기록 = 미국확률_조회(fred키, _미국_목표상단())
+
+if 자동:
+    예측 = 자동
+    색 = {"인상": "warning", "인하": "info", "동결": "success"}[자동["방향"]]
+    getattr(st, 색)(
+        f"**시장은 {자동['회의일']:%m월 %d일} FOMC 에서 "
+        f"{자동['방향']} 확률을 {자동['확률'] * 100:.1f}% 로 보고 있습니다** "
+        f"(동결 {자동['동결확률'] * 100:.1f}%)\n\n"
+        f"현재 실효금리 {자동['현재금리']:.2f}% → 회의 후 {자동['회의후금리']:.2f}% "
+        f"({자동['변화폭bp']:+.1f}bp) · 30일 연방기금 선물 {자동['티커']} 기준"
+    )
+else:
+    st.warning("선물 가격을 자동으로 받지 못했습니다. 아래에서 직접 넣어주세요.", icon="⚠️")
+
+with st.expander("🎯 시장 확률 직접 입력 / 계산 내역", expanded=not 자동):
+    for 줄 in 조회기록:
+        st.text("  " + 줄)
+    st.caption(
+        "CME FedWatch 는 무료 API 가 없어서, 그 도구가 쓰는 원본 데이터인 "
+        "30일 연방기금 선물(ZQ)을 직접 받아 같은 공식으로 계산합니다.\n\n"
+        "계약가 → 그 달 평균금리(100 − 가격) → 회의 전후 일수로 가중평균을 풀어 "
+        "회의 후 금리를 역산 → 0.25%p 로 나눈 값이 확률입니다.\n\n"
+        "다음 회의 한 번만 계산하므로 CME 값과 소수점 단위 차이가 날 수 있고, "
+        "그 다음 회의부터는 차이가 커집니다. 정확한 값은 CME 에서 확인하세요."
+    )
+    st.link_button("CME FedWatch 열기",
+                   "https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html",
+                   width="stretch")
+
+    st.markdown("##### 직접 입력")
+    d1, d2 = st.columns(2)
+    수동방향 = d1.selectbox("예상 방향", ["동결", "인상", "인하"],
+                        index=["동결", "인상", "인하"].index(설정.get("수동방향", "동결")),
+                        key="달걀_수동방향")
+    수동확률 = d2.slider("그 방향의 확률(%)", 0, 100,
+                     int(설정.get("수동확률") or 0), step=5, key="달걀_수동확률")
+    if st.checkbox("자동 계산 대신 위 값을 쓰기", key="달걀_수동사용",
+                   value=설정.get("수동확률") is not None):
+        예측 = {"방향": 수동방향, "확률": 수동확률 / 100,
+              "회의일": 다음FOMC, "출처": "직접 입력"}
+        설정["수동방향"] = 수동방향
+        설정["수동확률"] = 수동확률
+    else:
+        설정["수동확률"] = None
+
+# ---- 이번 인상이 어떤 성격인가 ----
+성격목록 = ["모름", "수요견인 (경기 확장)", "비용충격 (유가·환율 등)"]
+성격 = st.radio("이번 금리 국면의 성격", 성격목록, horizontal=True,
+              index=성격목록.index(설정.get("인상성격", "모름"))
+              if 설정.get("인상성격") in 성격목록 else 0,
+              key="달걀_성격")
+설정["인상성격"] = 성격
+if 성격.startswith("비용충격"):
+    st.warning(
+        "**달걀 모형의 전제와 다른 국면입니다.**\n\n"
+        "달걀 모형은 '경기가 좋아져서 과열을 막으려 금리를 올린다'를 가정합니다. "
+        "그때는 금리 상승 구간에서 주식이 오릅니다.\n\n"
+        "비용충격(유가·환율)으로 어쩔 수 없이 올리는 국면에서는 기업 이익이 원가로 "
+        "눌리는데 할인율만 올라갑니다. 교과서와 반대 방향이 나올 수 있습니다. "
+        "1970년대 오일쇼크가 그런 경우였습니다.",
+        icon="⚠️",
+    )
+
+# ==========================================================================
 # 달걀 차트 (plotly)
 # ==========================================================================
 호황색 = "rgba(230, 126, 34, 0.16)"
@@ -176,6 +286,24 @@ fig.add_trace(go.Scatter(
                    f"<br>사이클 {상태.r * 100:.0f}%<extra></extra>"),
     showlegend=False))
 
+# 예상 이동 위치 (다음 회의 결과가 반영되면 어디로 가는지)
+if 예측 and 예측.get("방향") in ("인상", "인하") and 예측.get("확률", 0) >= 0.5:
+    폭 = 0.25 / max(상태.cycle_high - 상태.cycle_low, 0.01)
+    새r = min(max(상태.r + (폭 if 예측["방향"] == "인상" else -폭), 0.0), 1.0)
+    새side = "up" if 예측["방향"] == "인상" else "down"
+    예상각 = EC.angle_for(새r, 새side)
+    예상x, 예상y = EC.point_at(예상각)
+    fig.add_trace(go.Scatter(
+        x=[현x, 예상x], y=[현y, 예상y], mode="lines",
+        line=dict(color=현재색, width=2, dash="dot"),
+        hoverinfo="skip", showlegend=False))
+    fig.add_trace(go.Scatter(
+        x=[예상x], y=[예상y], mode="markers",
+        marker=dict(size=20, color="rgba(0,0,0,0)", line=dict(color=현재색, width=2)),
+        hovertemplate=(f"{예측['방향']} 시 예상 위치<br>"
+                       f"확률 {예측['확률'] * 100:.0f}%<extra></extra>"),
+        showlegend=False))
+
 # 가운데 안내
 fig.add_annotation(x=0, y=0.18, text=f"<b>{상태.phase.name}</b>",
                    showarrow=False, font=dict(size=15))
@@ -194,7 +322,10 @@ fig.update_layout(
     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
 )
 st.plotly_chart(fig, width="stretch")
-st.caption(f"데이터 출처: {출처} · 왼쪽 = 금리 상승(호황기), 오른쪽 = 금리 하락(불황기)")
+안내 = f"데이터 출처: {출처} · 왼쪽 = 금리 상승(호황기), 오른쪽 = 금리 하락(불황기)"
+if 예측 and 예측.get("방향") in ("인상", "인하") and 예측.get("확률", 0) >= 0.5:
+    안내 += f" · 점선 = 다음 회의에서 {예측['방향']} 시 예상 위치"
+st.caption(안내)
 
 # ==========================================================================
 # 금리 추이
