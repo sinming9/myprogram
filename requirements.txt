@@ -1,4 +1,19 @@
 streamlit>=1.49
+
+# ==========================================================================
+# starlette 버전 고정 (2026-08-05 추가)
+# ==========================================================================
+# starlette 1.4.0 에서 GZipResponder 생성자에 thread_minimum_size 가
+# 필수 인자로 추가됐는데, streamlit 1.61.0 의 서브클래스
+# (_MediaAwareGZipResponder) 가 이를 넘기지 않아 서버가 뜨자마자 죽습니다.
+#
+#   TypeError: GZipResponder.__init__() missing 1 required
+#              keyword-only argument: 'thread_minimum_size'
+#
+# 앱 코드와 무관한 라이브러리 충돌이라 버전을 낮춰서 피합니다.
+# Streamlit 이 고쳐서 새 버전을 내면 이 줄을 지워도 됩니다.
+starlette<1.4.0
+
 pandas>=2.0
 numpy>=1.24
 plotly>=5.18
