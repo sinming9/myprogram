@@ -27,7 +27,8 @@ st.caption("한국·미국 주식과 ETF 를 계좌별로 모아서 봅니다")
 기본종목 = [
     {"이름": "삼성전자", "티커": "005930", "시장": "KR", "계좌": "일반",
      "자산군": "국내주식", "종류": "개별주", "수량": 100, "평균단가": 72000,
-     "현재가(수동)": None, "주당배당(수동)": None},
+     "현재가(수동)": None, "평가액(직접입력)": None, "갱신일": None,
+     "주당배당(수동)": None},
 ]
 
 st.session_state.setdefault("자산_종목", [dict(r) for r in 기본종목])
@@ -68,11 +69,17 @@ st.caption("**퇴직연금(DC)·IRP 의 TDF·펀드·정기예금**은 티커가
            "수량 1 · 평균단가에 투자원금을 넣으면 손익까지 나옵니다.")
 
 열 = ["이름", "티커", "시장", "계좌", "자산군", "종류", "수량", "평균단가",
-     "현재가(수동)", "평가액(직접입력)", "주당배당(수동)"]
+     "현재가(수동)", "평가액(직접입력)", "갱신일", "주당배당(수동)"]
 기준df = pd.DataFrame(st.session_state["자산_종목"], columns=열)
 for 숫자열 in ("수량", "평균단가", "현재가(수동)", "평가액(직접입력)",
             "주당배당(수동)"):
     기준df[숫자열] = pd.to_numeric(기준df[숫자열], errors="coerce")
+# 날짜 열은 object dtype 으로 (datetime64 면 pandas 3.x 에서 편집이 안 됩니다)
+기준df["갱신일"] = pd.Series(
+    [None if pd.isna(v) else (v if isinstance(v, date)
+                              else pd.to_datetime(v, errors="coerce").date()
+                              if pd.notna(pd.to_datetime(v, errors="coerce")) else None)
+     for v in 기준df["갱신일"]], dtype="object")
 
 종목df = st.data_editor(
     기준df, num_rows="dynamic", width="stretch",
@@ -84,7 +91,11 @@ for 숫자열 in ("수량", "평균단가", "현재가(수동)", "평가액(직�
         "계좌": st.column_config.SelectboxColumn(options=PF.계좌목록),
         "자산군": st.column_config.SelectboxColumn(options=PF.자산군목록),
         "종류": st.column_config.SelectboxColumn(options=PF.종류목록),
-        "수량": st.column_config.NumberColumn(min_value=0.0, step=1.0, format="%.4f"),
+        "수량": st.column_config.NumberColumn(
+            min_value=0.0, step=0.000001, format="%.6f",
+            help="소수점 6자리까지 넣을 수 있습니다. "
+                 "해외주식 소수점 매수, ETF 분할, 펀드 좌수 등에 쓰세요. "
+                 "펀드·예금처럼 수량 개념이 없으면 1 을 넣으세요."),
         "평균단가": st.column_config.NumberColumn(min_value=0.0, step=100.0,
                                              help="해당 통화 기준 (미국은 달러)"),
         "현재가(수동)": st.column_config.NumberColumn(
@@ -94,6 +105,9 @@ for 숫자열 in ("수량", "평균단가", "현재가(수동)", "평가액(직�
             help="퇴직연금 TDF·펀드·정기예금처럼 티커가 없는 상품용. "
                  "여기 넣으면 시세 조회를 건너뛰고 이 금액을 그대로 씁니다. "
                  "수량 1, 평균단가에 투자원금을 넣으면 손익도 나옵니다."),
+        "갱신일": st.column_config.DateColumn(
+            format="YYYY-MM-DD",
+            help="평가액을 직접 넣은 날. 30일이 지나면 알려드립니다."),
         "주당배당(수동)": st.column_config.NumberColumn(
             min_value=0.0, help="비워두면 최근 1년 실제 배당을 씁니다"),
     })
@@ -119,6 +133,9 @@ for 순번, (_, row) in enumerate(종목df.iterrows(), start=1):
         "현재가(수동)": None if pd.isna(row.get("현재가(수동)")) else float(row["현재가(수동)"]),
         "평가액(직접입력)": (None if pd.isna(row.get("평가액(직접입력)"))
                        else float(row["평가액(직접입력)"])),
+        "갱신일": (None if not row.get("갱신일") or pd.isna(row.get("갱신일"))
+                else (row["갱신일"].isoformat() if isinstance(row["갱신일"], date)
+                      else str(row["갱신일"])[:10])),
         "주당배당(수동)": None if pd.isna(row.get("주당배당(수동)")) else float(row["주당배당(수동)"]),
     })
 
@@ -175,6 +192,18 @@ if 환율오류:
 
 종목들 = [PF.종목_계산(s, 시세들.get(s["이름"]), 환율) for s in 읽은목록]
 합계 = PF.요약(종목들)
+
+오래된 = []
+for s_ in 읽은목록:
+    오래, 경과 = PF.갱신_필요한가(s_)
+    if 오래:
+        오래된.append((s_["이름"], 경과))
+if 오래된:
+    줄 = ", ".join(f"{이름}" + (f"({경과}일 전)" if 경과 is not None else "(날짜 없음)")
+                 for 이름, 경과 in 오래된)
+    st.warning(f"직접 넣은 평가액이 오래됐거나 갱신일이 비어 있습니다 — {줄}. "
+               "퇴직연금 앱에서 현재 평가금액을 확인해 **갱신일**과 함께 넣어주세요.",
+               icon="🗓️")
 
 if 실패목록:
     with st.expander(f"⚠️ 시세 조회 실패 {len(실패목록)}건 — 평균단가로 계산했습니다"):
@@ -262,6 +291,7 @@ st.plotly_chart(막대, width="stretch")
 종목표 = pd.DataFrame([{
     "이름": s["이름"], "계좌": s["계좌"], "자산군": s["자산군"],
     "종류": s["종류"], "평가액": round(s["평가액"]),
+    "직접": "○" if s.get("직접입력") else "",
     "비중(%)": round(s["평가액"] / 합계["평가액"] * 100, 1) if 합계["평가액"] else 0,
     "수익률(%)": round(s["수익률"], 2),
     "연배당": round(s["연배당"]),
