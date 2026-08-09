@@ -57,6 +57,17 @@ from datetime import date, datetime, timedelta
 }
 
 
+def 한국_종목코드인가(티커: str) -> bool:
+    """한국 종목코드는 6자리입니다.
+
+    ※ 예전에는 숫자 6자리만 있었지만, 번호가 부족해지면서 신규 ETF·ETN 에는
+      '0117V0' 처럼 영문이 섞인 코드가 부여됩니다. 숫자만 검사하면
+      이런 종목을 한국 종목으로 인식하지 못해 조회에 실패합니다.
+    """
+    t = str(티커).strip().upper()
+    return len(t) == 6 and t.isalnum() and not t.isalpha()
+
+
 def 야후티커(티커: str, 시장: str) -> list:
     """조회에 쓸 야후 티커 후보들."""
     t = str(티커).strip().upper()
@@ -64,9 +75,46 @@ def 야후티커(티커: str, 시장: str) -> list:
         return [t if t.endswith("-USD") else f"{t}-USD"]
     if 시장 == "US":
         return [t]
-    if t.isdigit() and len(t) == 6:
+    if 한국_종목코드인가(t):
         return [f"{t}.KS", f"{t}.KQ"]      # 코스피 먼저, 실패하면 코스닥
     return [t]
+
+
+def _fdr_시세(티커: str, 시장: str) -> dict:
+    """FinanceDataReader 로 조회. 야후에 없는 신규 상장 ETF 대비용입니다.
+
+    야후는 국내 신규 상장 종목 수록이 늦습니다. FDR 은 KRX 에서 직접
+    받아오므로 상장 직후 종목도 대개 잡힙니다. 다만 배당 정보는 없습니다.
+    """
+    import FinanceDataReader as fdr
+    끝 = datetime.now()
+    시작 = 끝 - timedelta(days=400)
+    df = fdr.DataReader(str(티커).strip().upper(),
+                        시작.strftime("%Y-%m-%d"), 끝.strftime("%Y-%m-%d"))
+    if df is None or df.empty or "Close" not in df:
+        raise ValueError("FinanceDataReader 응답이 비어 있습니다")
+    종가들 = [float(v) for v in df["Close"].tolist() if v == v and v]
+    if not 종가들:
+        raise ValueError("유효한 종가가 없습니다")
+
+    현재가 = 종가들[-1]
+    고, 저 = max(종가들), min(종가들)
+
+    def 이평(n):
+        구간 = 종가들[-n:]
+        return sum(구간) / len(구간) if 구간 else 현재가
+
+    return {
+        "티커": 티커,
+        "현재가": 현재가,
+        "통화": "USD" if 시장 == "US" else "KRW",
+        "52주고": 고, "52주저": 저,
+        "52주위치": ((현재가 - 저) / (고 - 저) * 100) if 고 > 저 else 50.0,
+        "이평20": 이평(20), "이평60": 이평(60), "이평120": 이평(120),
+        "주당배당_1년": 0.0, "배당횟수": 0, "배당월별": {},
+        "출처": "FinanceDataReader",
+        "원화표시": 시장 != "US",
+    }
 
 
 def _야후_조회(티커: str, 기간="1y", 시간제한=15) -> dict:
@@ -130,7 +178,7 @@ def 시세_조회(티커: str, 시장: str) -> dict:
         try:
             데이터 = _야후_조회(후보)
         except Exception as e:  # noqa: BLE001
-            오류.append(f"{후보}: {e}")
+            오류.append(f"야후 {후보}: {e}")
             continue
 
         종가들 = [v for v in
@@ -173,6 +221,12 @@ def 시세_조회(티커: str, 시장: str) -> dict:
             "출처": "야후",
             "원화표시": False,
         }
+    # 야후가 모두 실패하면 FinanceDataReader 로 한 번 더 (신규 상장 대비)
+    try:
+        return _fdr_시세(티커, 시장)
+    except Exception as e:  # noqa: BLE001
+        오류.append(f"FinanceDataReader: {e}")
+
     raise RuntimeError(" / ".join(오류))
 
 
