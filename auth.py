@@ -158,6 +158,17 @@ def _세션_유효한가() -> bool:
     "app_kit": ["시작", "날짜로", "숫자로", "표만들기"],
     "addons": ["전체_불러오기", "정상_목록"],
     "importer": ["파일_읽기", "요약"],
+    # engines 도 함께 봅니다. 페이지가 불러온 것만 검사되므로,
+    # 그 페이지를 안 열면 아무 영향이 없습니다.
+    "engines.portfolio": ["종목_계산", "집계", "요약", "배당_달력", "리밸런싱",
+                         "ISA_현황", "갱신_필요한가", "조회가_필요한가"],
+    "engines.capital_gains": ["계산", "장특공_비율", "공제제도", "공제제도_고르기"],
+    "engines.egg_cycle": ["compute_state", "이력_불러오기", "egg_outline"],
+    "engines.fedwatch": ["미국_전망", "확률_계산", "다음_회의"],
+    "engines.fx": ["환율_가져오기", "평균_계산", "금액표시"],
+    "engines.loan": ["스케줄_생성", "요약"],
+    "engines.property_tax": ["calculate", "add_or_update_history"],
+    "engines.salary": ["dashboard_records", "연도별_표"],
 }
 
 
@@ -179,7 +190,8 @@ def _버전_점검():
             continue
         빠진함수 = [f for f in 함수들 if not hasattr(모듈, f)]
         if 빠진함수:
-            문제.append(f"{이름}.py (없는 기능: {', '.join(빠진함수)})")
+            경로 = 이름.replace(".", "/") + ".py"
+            문제.append(f"{경로} (없는 기능: {', '.join(빠진함수)})")
     return 문제
 
     # ※ 예전에는 모듈버전 문자열이 서로 같은지도 검사했습니다.
@@ -212,9 +224,9 @@ Streamlit 은 화면 파일(`pages/`)만 매번 다시 읽고, 공용 파일은
 
 브라우저 새로고침(F5)만으로는 해결되지 않습니다.
 
-##### 공용 파일은 항상 한 세트로
-`ui.py` · `storage.py` · `auth.py` · `app_kit.py` · `addons.py` · `importer.py`
-이 여섯 개는 서로 맞물려 있으니 **함께** 교체하세요.
+##### 파일 위치를 지켜주세요
+`engines/` 로 시작하면 engines 폴더 안에, `pages/` 로 시작하면 pages 폴더 안에
+넣어야 합니다. 최상위에 올리면 앱이 못 찾습니다.
 """
     )
     st.stop()
