@@ -183,16 +183,19 @@ def _버전_점검():
         (Streamlit 은 pages/ 는 매번 다시 읽지만 공용 모듈은 처음 것만 씁니다)
       · 파일을 일부만 올렸을 때 (pages/ 만 올리고 ui.py 는 안 올린 경우 등)
     """
-    문제 = []
+    핵심, 엔진 = [], []
     for 이름, 함수들 in 필요기능.items():
         모듈 = sys.modules.get(이름)
         if 모듈 is None:
             continue
         빠진함수 = [f for f in 함수들 if not hasattr(모듈, f)]
-        if 빠진함수:
-            경로 = 이름.replace(".", "/") + ".py"
-            문제.append(f"{경로} (없는 기능: {', '.join(빠진함수)})")
-    return 문제
+        if not 빠진함수:
+            continue
+        경로 = 이름.replace(".", "/") + ".py"
+        줄 = f"{경로} (없는 기능: {', '.join(빠진함수)})"
+        # engines 는 그 페이지에서만 쓰이므로 다른 페이지까지 막지 않습니다.
+        (엔진 if 이름.startswith("engines.") else 핵심).append(줄)
+    return 핵심, 엔진
 
     # ※ 예전에는 모듈버전 문자열이 서로 같은지도 검사했습니다.
     #   그러면 실제로 바뀐 파일이 하나여도 나머지를 전부 다시 올려야 해서
@@ -251,9 +254,18 @@ def require_login(page_title: str = "개인 대시보드", page_icon: str = "�
     except Exception:  # noqa: BLE001
         pass
 
-    낡은것 = _버전_점검()
-    if 낡은것:
-        _낡은모듈_안내(낡은것)
+    낡은핵심, 낡은엔진 = _버전_점검()
+    if 낡은핵심:
+        # 공용 파일이 낡으면 어느 페이지든 깨지므로 여기서 멈춥니다.
+        _낡은모듈_안내(낡은핵심)
+    if 낡은엔진:
+        # 엔진은 해당 계산 페이지에서만 쓰이므로 알려만 주고 진행합니다.
+        st.warning(
+            "일부 계산 파일이 예전 버전입니다 — **" + ", ".join(낡은엔진) + "**\n\n"
+            "그 계산을 쓰는 페이지에서만 문제가 생깁니다. "
+            "GitHub 저장소에 위 파일을 올리고 Commit changes 하시면 됩니다. "
+            "(내 PC 라면 서버를 껐다 켜세요)",
+            icon="🔧")
 
     if _세션_유효한가():
         return
