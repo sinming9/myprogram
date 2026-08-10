@@ -272,7 +272,9 @@ st.plotly_chart(도넛, width="stretch")
     "종목수": g["종목수"], "손익": round(g["손익"]), "수익률(%)": round(g["수익률"], 2),
     "연배당": round(g["연배당"]),
 } for g in 묶음])
-st.dataframe(묶음표.style.format({"평가액": "{:,}", "손익": "{:,}", "연배당": "{:,}"}),
+st.dataframe(묶음표.style.format({"평가액": "{:,}", "손익": "{:,}", "연배당": "{:,}",
+                               "비중(%)": "{:.1f}", "수익률(%)": "{:+.2f}",
+                               "종목수": "{:d}"}),
              width="stretch", hide_index=True)
 
 if 기준 == "계좌":
@@ -365,7 +367,8 @@ if 보기 == "종목 합산":
         "연배당": round(s_["연배당"]),
         "계좌": " + ".join(f"{k} {v / 1e4:,.0f}만" for k, v in s_["계좌별"].items()),
     } for s_ in 합산목록])
-    st.dataframe(합산표.style.format({"평가액(원화)": "{:,}", "연배당": "{:,}"}),
+    st.dataframe(합산표.style.format({"평가액(원화)": "{:,}", "연배당": "{:,}",
+                                   "비중(%)": "{:.1f}", "수익률(%)": "{:+.2f}"}),
                  width="stretch", hide_index=True,
                  height=min(60 + 35 * len(합산표), 500))
     st.caption("같은 종목을 계좌별로 합친 표입니다. "
@@ -386,7 +389,9 @@ if 보기 == "종목 합산":
     "직접": "○" if s.get("직접입력") else "",
 } for s in 정렬])
 if 보기 == "계좌별로 나눠서":
-    st.dataframe(종목표.style.format({"평가액(원화)": "{:,}"}, na_rep="-"),
+    st.dataframe(종목표.style.format({"평가액(원화)": "{:,}", "비중(%)": "{:.1f}",
+                                   "수익률(%)": "{:+.2f}", "배당률(%)": "{:.2f}",
+                                   "52주(%)": "{:.0f}"}, na_rep="-"),
                  width="stretch", hide_index=True,
                  height=min(60 + 35 * len(종목표), 500))
     st.caption("**평균단가·현재가·평가액**은 원래 통화로 표시합니다 "
@@ -429,8 +434,8 @@ with st.expander("월별 상세"):
         "비중(%)": round(d["금액"] / 연배당합 * 100, 1) if 연배당합 else 0,
         "종목": ", ".join(dict.fromkeys(d["종목들"])) or "-",
     } for d in 달력])
-    st.dataframe(달력표.style.format({"배당금": "{:,}"}), width="stretch",
-                 hide_index=True, height=460)
+    st.dataframe(달력표.style.format({"배당금": "{:,}", "비중(%)": "{:.1f}"}),
+                 width="stretch", hide_index=True, height=460)
     st.caption("최근 1년에 **실제로 지급된 달**을 그대로 다음 1년에 대입한 것입니다. "
                "예측이 아니라 실적이며, 회사가 배당 시기나 금액을 바꾸면 달라집니다. "
                "'(가정)' 이 붙은 건 조회가 안 돼서 한국 4월·미국 분기로 가정한 것입니다.")
@@ -486,7 +491,9 @@ else:
         "현재금액": round(r["현재금액"]), "목표금액": round(r["목표금액"]),
         "조정": ("＋" if r["조정금액"] > 0 else "－") + f"{abs(r['조정금액']):,.0f}",
     } for r in 조정])
-    st.dataframe(조정표.style.format({"현재금액": "{:,}", "목표금액": "{:,}"}),
+    st.dataframe(조정표.style.format({"현재금액": "{:,}", "목표금액": "{:,}",
+                                   "현재(%)": "{:.1f}", "목표(%)": "{:.1f}",
+                                   "괴리(%p)": "{:+.1f}"}),
                  width="stretch", hide_index=True)
     st.caption("**＋는 더 사야 할 금액, －는 덜어내야 할 금액**입니다. "
                "한 번에 맞추기보다 새로 넣는 돈으로 부족한 쪽을 채우면 "
