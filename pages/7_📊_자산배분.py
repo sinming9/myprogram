@@ -294,23 +294,84 @@ st.divider()
 st.subheader("종목별 현황")
 
 집중 = PF.집중도(종목들, 상위=5)
-st.caption(f"상위 5종목이 전체의 **{집중['상위비중']:.1f}%** · "
-           f"가장 큰 종목은 {집중['최대종목']} **{집중['최대종목비중']:.1f}%**")
+합산목록 = PF.종목_합산(종목들)
+
+안내 = (f"상위 5종목이 전체의 **{집중['상위비중']:.1f}%** · "
+      f"가장 큰 종목은 {집중['최대종목']} **{집중['최대종목비중']:.1f}%**")
+if 집중["최대종목_계좌수"] > 1:
+    안내 += f" ({집중['최대종목_계좌수']}개 계좌 합산)"
+st.caption(안내)
+
+if 집중["나뉜종목수"]:
+    st.info(f"같은 종목을 여러 계좌에 나눠 담은 게 {집중['나뉜종목수']}건 있습니다. "
+            "쏠림은 계좌와 무관하게 그 자산에 얼마나 몰렸느냐의 문제라 "
+            "**합쳐서** 계산했습니다.", icon="🔗")
+
 if 집중["최대종목비중"] >= 30:
     st.warning(f"{집중['최대종목']} 하나가 {집중['최대종목비중']:.1f}% 입니다. "
                "한 종목 쏠림이 큰 편인지 확인해 보세요.", icon="📌")
 
-정렬 = sorted(종목들, key=lambda s: -s["평가액"])
-막대 = go.Figure(go.Bar(
-    x=[s["평가액"] / 1e4 for s in 정렬][::-1],
-    y=[s["이름"] for s in 정렬][::-1],
-    orientation="h", marker_color="#2B6ED5",
-    hovertemplate="%{y}<br>%{x:,.0f}만원<extra></extra>"))
-막대.update_layout(height=max(240, 32 * len(정렬)),
-                 margin=dict(l=10, r=10, t=20, b=10),
-                 xaxis_title="평가액(만원)")
+# 자산군 태그가 이름과 어긋나 보이는 종목
+어긋남 = list(dict.fromkeys(PF.자산군_확인필요(종목들)))
+if 어긋남:
+    st.warning(
+        "**자산군 태그를 확인해 주세요** — " + ", ".join(어긋남) + "\n\n"
+        "이름에 해외 지수가 들어 있는데 자산군이 `국내주식` 으로 되어 있습니다. "
+        "국내 상장 해외 ETF 는 **시장은 KR, 자산군은 해외주식**이 맞습니다. "
+        "이걸 구분해야 실제 해외 노출이 보입니다.", icon="🏷️")
+
+보기 = st.radio("보기", ["종목 합산", "계좌별로 나눠서"], horizontal=True,
+              key="자산_종목보기")
+
+if 보기 == "종목 합산":
+    정렬 = 합산목록
+    막대 = go.Figure()
+    쓰인계좌 = []
+    for s_ in 정렬:
+        for 계좌 in s_["계좌별"]:
+            if 계좌 not in 쓰인계좌:
+                쓰인계좌.append(계좌)
+    for 계좌 in 쓰인계좌:
+        막대.add_trace(go.Bar(
+            x=[s_["계좌별"].get(계좌, 0) / 1e4 for s_ in 정렬][::-1],
+            y=[s_["이름"] for s_ in 정렬][::-1],
+            name=계좌, orientation="h",
+            marker_color=PF.계좌색.get(계좌, "#9AA3AF"),
+            hovertemplate="%{y}<br>" + 계좌 + " %{x:,.0f}만원<extra></extra>"))
+    막대.update_layout(barmode="stack",
+                     height=max(240, 34 * len(정렬) + 60),
+                     margin=dict(l=10, r=10, t=20, b=10),
+                     xaxis_title="평가액(만원)",
+                     legend=dict(orientation="h", y=1.12))
+else:
+    정렬 = sorted(종목들, key=lambda s: -s["평가액"])
+    막대 = go.Figure(go.Bar(
+        x=[s_["평가액"] / 1e4 for s_ in 정렬][::-1],
+        y=[f"{s_['이름']} · {s_['계좌']}" for s_ in 정렬][::-1],
+        orientation="h",
+        marker_color=[PF.계좌색.get(s_["계좌"], "#9AA3AF") for s_ in 정렬][::-1],
+        hovertemplate="%{y}<br>%{x:,.0f}만원<extra></extra>"))
+    막대.update_layout(height=max(240, 34 * len(정렬)),
+                     margin=dict(l=10, r=10, t=20, b=10),
+                     xaxis_title="평가액(만원)")
 st.plotly_chart(막대, width="stretch")
 
+if 보기 == "종목 합산":
+    합산표 = pd.DataFrame([{
+        "이름": s_["이름"],
+        "평가액(원화)": round(s_["평가액"]),
+        "비중(%)": round(s_["평가액"] / 합계["평가액"] * 100, 1) if 합계["평가액"] else 0,
+        "수익률(%)": round(s_["수익률"], 2),
+        "연배당": round(s_["연배당"]),
+        "계좌": " + ".join(f"{k} {v / 1e4:,.0f}만" for k, v in s_["계좌별"].items()),
+    } for s_ in 합산목록])
+    st.dataframe(합산표.style.format({"평가액(원화)": "{:,}", "연배당": "{:,}"}),
+                 width="stretch", hide_index=True,
+                 height=min(60 + 35 * len(합산표), 500))
+    st.caption("같은 종목을 계좌별로 합친 표입니다. "
+               "계좌별로 나눠 보시려면 위에서 **계좌별로 나눠서** 를 고르세요.")
+
+정렬 = sorted(종목들, key=lambda s: -s["평가액"])
 종목표 = pd.DataFrame([{
     "이름": s["이름"], "계좌": s["계좌"], "자산군": s["자산군"], "종류": s["종류"],
     "평균단가": PF.금액표시(s["평균단가"], s["시장"]),
@@ -324,11 +385,13 @@ st.plotly_chart(막대, width="stretch")
     "52주(%)": None if s["52주위치"] is None else round(s["52주위치"]),
     "직접": "○" if s.get("직접입력") else "",
 } for s in 정렬])
-st.dataframe(종목표.style.format({"평가액(원화)": "{:,}"}, na_rep="-"),
-             width="stretch", hide_index=True, height=min(60 + 35 * len(종목표), 500))
-st.caption("**평균단가·현재가·평가액**은 원래 통화로 표시합니다 "
-           "(해외주식 달러, 국내주식·코인 원화). "
-           "**평가액(원화)** 는 환율로 환산한 값이고, 비중·합계는 이걸로 계산합니다.")
+if 보기 == "계좌별로 나눠서":
+    st.dataframe(종목표.style.format({"평가액(원화)": "{:,}"}, na_rep="-"),
+                 width="stretch", hide_index=True,
+                 height=min(60 + 35 * len(종목표), 500))
+    st.caption("**평균단가·현재가·평가액**은 원래 통화로 표시합니다 "
+               "(해외주식 달러, 국내주식·코인 원화). "
+               "**평가액(원화)** 는 환율로 환산한 값이고, 비중·합계는 이걸로 계산합니다.")
 st.caption("**52주 위치**는 최근 1년 최저가를 0%, 최고가를 100%로 봤을 때 지금 위치입니다. "
            "높다고 팔고 낮다고 사라는 뜻이 아니라, 현재 상태를 보는 참고값입니다.")
 
