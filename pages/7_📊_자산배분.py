@@ -11,6 +11,7 @@ import storage  # noqa: E402
 import ui  # noqa: E402
 from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
+from engines import egg_cycle as EC  # noqa: E402
 from engines import portfolio as PF  # noqa: E402
 
 require_login(page_title="자산배분 현황", page_icon="📊", layout="centered")
@@ -498,6 +499,92 @@ else:
     st.caption("**＋는 더 사야 할 금액, －는 덜어내야 할 금액**입니다. "
                "한 번에 맞추기보다 새로 넣는 돈으로 부족한 쪽을 채우면 "
                "매도 세금과 수수료를 아낄 수 있습니다.")
+
+# ==========================================================================
+# 금리 사이클 연동
+# ==========================================================================
+st.divider()
+st.subheader("🥚 금리 국면과 대조")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def 국면_구하기(나라, 저점, 고점, 조회연수, 수동금리, 추가이력):
+    이력, 출처, _오류 = EC.이력_불러오기(나라, None, 추가이력)
+    if 수동금리:
+        이력 = EC.RateHistory(list(이력.points)
+                            + [(date.today(), float(수동금리))]).sort()
+        출처 = "직접 입력"
+    설정 = EC.CycleConfig(country=나라, cycle_low=저점, cycle_high=고점,
+                        lookback_years=int(조회연수 or 3))
+    return EC.compute_state(이력, 설정, 출처), 출처
+
+
+달걀설정 = storage.불러오기("egg_cycle", {}) or {}
+try:
+    상태, 금리출처 = 국면_구하기(
+        달걀설정.get("country", "KR"), 달걀설정.get("cycle_low"),
+        달걀설정.get("cycle_high"), 달걀설정.get("lookback_years", 3),
+        달걀설정.get("manual_rate"),
+        tuple(tuple(x) for x in (달걀설정.get("추가이력") or [])))
+except Exception as e:  # noqa: BLE001
+    상태, 금리출처 = None, None
+    st.info(f"금리 국면을 불러오지 못했습니다 ({e}). "
+            "🥚 금리 사이클 페이지를 한 번 열어보세요.", icon="ℹ️")
+
+if 상태:
+    강조 = {"호황기": "info", "불황기": "warning", "전환점": "success"}[상태.phase.regime]
+    getattr(st, 강조)(
+        f"현재 **{상태.phase.name}** · {상태.phase.regime} "
+        f"(기준금리 {상태.rate:.2f}%, 사이클 {상태.r * 100:.0f}%)\n\n"
+        f"모형이 시사하는 것 — {상태.phase.action}")
+
+    현재비중 = {g["이름"]: g["비중"] for g in PF.집계(종목들, "자산군")}
+    목표비중 = st.session_state.get("자산_목표", {}) or {}
+    대조 = EC.배분_대조(상태.phase.code, 현재비중, 목표비중)
+
+    표시 = []
+    for r in 대조:
+        if r["현재비중"] <= 0 and r["모형방향"] is None:
+            continue
+        판정 = ""
+        if r["방향일치"] is True:
+            판정 = "✅ 같은 방향"
+        elif r["방향일치"] is False:
+            판정 = "⚠️ 반대"
+        표시.append({
+            "자산군": r["자산군"],
+            "현재(%)": round(r["현재비중"], 1),
+            "목표(%)": None if r["목표비중"] is None else round(r["목표비중"], 1),
+            "괴리(%p)": None if r["괴리"] is None else round(r["괴리"], 1),
+            "모형": (f"{r['모형방향']} {r['모형설명']}" if r["모형방향"]
+                   else r["모형설명"]),
+            "판정": 판정,
+        })
+    st.dataframe(
+        pd.DataFrame(표시).style.format(
+            {"현재(%)": "{:.1f}", "목표(%)": "{:.1f}", "괴리(%p)": "{:+.1f}"},
+            na_rep="-"),
+        width="stretch", hide_index=True)
+
+    반대 = [r["자산군"] for r in 대조 if r["방향일치"] is False]
+    if 목표비중 and 반대:
+        st.caption(f"**{', '.join(반대)}** 는 모형이 말하는 방향과 반대로 "
+                   "치우쳐 있습니다. 위 **목표 배분 대비** 에서 조정 금액을 보세요.")
+    elif not 목표비중:
+        st.caption("위 **⚖️ 목표 배분 대비** 에서 목표 비중을 넣으면, "
+                   "지금 치우친 방향이 모형과 같은지 다른지도 함께 알려드립니다.")
+
+    st.caption(f"금리 자료: {금리출처}"
+               + (" · 🥚 금리 사이클 페이지에서 밴드·금리를 조정할 수 있습니다"))
+
+    st.warning(
+        "**모형은 방향만 말합니다.** 달걀 모형은 '주식을 늘려라' 정도를 시사할 뿐 "
+        "구체적인 비중(%)을 제시하지 않습니다. 그래서 여기서도 ↑↓— 만 보여주고 "
+        "숫자는 만들어내지 않습니다.\n\n"
+        "특히 이번처럼 **비용충격(유가·환율)으로 금리가 오르는 국면**에서는 "
+        "교과서와 반대 방향이 나올 수 있습니다. 🥚 페이지에서 국면 성격을 "
+        "'비용충격' 으로 두셨다면 더 조심하세요. 암호화폐·원자재는 모형 범위 밖입니다.",
+        icon="⚠️")
 
 # ==========================================================================
 # ISA 관리
