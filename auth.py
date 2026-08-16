@@ -174,6 +174,10 @@ def _세션_유효한가() -> bool:
     "engines.loan": ["스케줄_생성", "요약"],
     "engines.property_tax": ["calculate", "add_or_update_history"],
     "engines.salary": ["dashboard_records", "연도별_표"],
+    "engines.networth": ["백분위", "순자산_계산", "추이_분석", "구간_분석",
+                        "소득대비_축적", "기타자산_항목", "기타부채_항목"],
+    "engines.diagnosis": ["분산_진단", "유효_종목수", "등급", "연령_진단",
+                         "위험자산_비중계산", "배당_진단", "공식_기준", "배당_논점"],
 }
 
 
