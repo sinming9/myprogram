@@ -237,14 +237,13 @@ st.divider()
 st.subheader("얼마나 빨리 늘고 있나")
 
 기록 = list(설정.get("기록") or [])
-기준df = pd.DataFrame(기록, columns=["날짜", "순자산", "순납입액", "메모"])
+기준df = pd.DataFrame(기록, columns=["날짜", "순자산", "메모"])
 기준df["날짜"] = pd.Series(
     [None if pd.isna(v) else (v if isinstance(v, date)
                               else pd.to_datetime(v, errors="coerce").date()
                               if pd.notna(pd.to_datetime(v, errors="coerce")) else None)
      for v in 기준df["날짜"]], dtype="object")
-for 열 in ("순자산", "순납입액"):
-    기준df[열] = pd.to_numeric(기준df[열], errors="coerce")
+기준df["순자산"] = pd.to_numeric(기준df["순자산"], errors="coerce")
 
 기록df = st.data_editor(
     기준df, num_rows="dynamic", width="stretch",
@@ -255,11 +254,6 @@ for 열 in ("순자산", "순납입액"):
                                           max_value=date(2100, 12, 31)),
         "순자산": st.column_config.NumberColumn(min_value=0, step=1_000_000,
                                             format="%.0f"),
-        "순납입액": st.column_config.NumberColumn(
-            min_value=0, step=1_000_000, format="%.0f",
-            help="**직전 기록 이후 새로 넣은 돈.** 월급 저축, 추가 매수, 대출 원금 상환 "
-                 "등을 합친 금액입니다. 이걸 넣어야 '주가가 올라서' 와 '내가 넣어서' 를 "
-                 "구분할 수 있습니다."),
         "메모": st.column_config.TextColumn(),
     })
 
@@ -267,14 +261,49 @@ c3, c4 = st.columns(2)
 if c3.button("📌 오늘 순자산 기록에 추가", type="primary", width="stretch"):
     새기록 = [r for r in 기록 if str(r.get("날짜"))[:10] != date.today().isoformat()]
     새기록.append({"날짜": date.today().isoformat(),
-                "순자산": int(가구순자산), "순납입액": 0, "메모": ""})
+                "순자산": int(가구순자산), "메모": ""})
     설정["기록"] = sorted(새기록, key=lambda r: str(r["날짜"]))
     st.session_state["순자산_표버전"] += 1
     성공, 메시지 = storage.저장하기(저장키, 설정)
     (st.success if 성공 else st.error)(메시지)
     st.rerun()
-c4.caption("가구 순자산 기준으로 오늘 날짜를 추가합니다. "
-           "**순납입액은 직접 채워 넣으세요.**")
+c4.caption("가구 순자산 기준으로 오늘 날짜를 추가합니다.")
+
+with st.expander("📋 엑셀에서 복사해 붙여넣기", expanded=False):
+    st.caption(
+        "엑셀에서 **머리글 줄까지 포함해** 범위를 복사한 뒤 아래에 붙여넣으세요. "
+        "`기준월`(또는 `날짜`) 과 `순자산` 열을 찾아 읽습니다. "
+        "나머지 열은 무시하니 통째로 복사하셔도 됩니다.")
+    st.code("기준월\t예금\t...\t총자산\t순자산\t전월대비\n"
+            "2026-06-30\t144,592,350원\t...\t1,166,057,532원\t810,891,235원\t4,938,780원",
+            language=None)
+    붙임 = st.text_area("붙여넣기", height=160, key="_순자산_붙임",
+                      placeholder="여기에 Ctrl+V")
+
+    b1, b2 = st.columns(2)
+    합치기 = b1.radio("기존 기록은", ["합치기 (같은 날짜는 덮어씀)", "모두 지우고 새로"],
+                  key="_붙임방식")
+    if b2.button("📥 읽어들이기", type="primary", width="stretch",
+                 disabled=not 붙임.strip()):
+        새기록, 경고들 = NW.붙여넣기_읽기(붙임)
+        for m in 경고들:
+            st.warning(m, icon="⚠️")
+        if 새기록:
+            if 합치기.startswith("모두"):
+                합본 = 새기록
+            else:
+                묶 = {str(r["날짜"])[:10]: r for r in 기록}
+                묶.update({str(r["날짜"])[:10]: r for r in 새기록})
+                합본 = sorted(묶.values(), key=lambda r: str(r["날짜"]))
+            설정["기록"] = 합본
+            st.session_state["순자산_표버전"] += 1
+            성공, 메시지 = storage.저장하기(저장키, 설정)
+            st.success(f"{len(새기록)}줄을 읽었습니다. (전체 {len(합본)}줄)  {메시지}")
+            st.rerun()
+
+    st.caption(
+        "괄호는 음수로 읽습니다 — `(355,166,297원)` → **−355,166,297**. "
+        "`원` `₩` 쉼표는 알아서 떼고, `-` 나 빈칸은 0 으로 봅니다.")
 
 읽은기록 = []
 for _, row in 기록df.iterrows():
@@ -284,7 +313,7 @@ for _, row in 기록df.iterrows():
     읽은기록.append({
         "날짜": (d.isoformat() if isinstance(d, date) else str(d)[:10]),
         "순자산": float(v),
-        "순납입액": 0.0 if pd.isna(row.get("순납입액")) else float(row["순납입액"]),
+        "순납입액": 0.0,
         "메모": str(row.get("메모") or ""),
     })
 설정["기록"] = 읽은기록
@@ -298,15 +327,15 @@ if not 추이["충분"]:
 else:
     e = 추이["전체"]
     ui.카드_줄([
-        ("전체 성장", f"{e['성장률']:+.1f}%",
+        ("전체 증감", ui.억(e["총증감"]),
          f"{ui.억(e['시작'])} → {ui.억(e['끝'])} ({e['년']:.1f}년)"),
+        ("전체 성장률", f"{e['성장률']:+.1f}%",
+         f"{e['년']:.1f}년 누적"),
         ("연평균(CAGR)", f"{e['CAGR']:+.2f}%",
          (f"이 속도면 2배까지 {추이['배가기간']:.1f}년" if 추이["배가기간"]
           else "감소 중")),
-        ("저축이 만든 몫", ui.억(e["저축기여"]),
-         f"증감의 {e['저축비중']:.0f}%"),
-        ("시장이 만든 몫", ui.억(e["시장기여"]),
-         f"투자수익률 연 {e['연환산수익률']:+.1f}%"),
+        ("월평균 증감", ui.억(e["총증감"] / max(e["일수"] / 30.44, 1)),
+         "기간 평균"),
     ], 열수=2)
 
     추이그림 = go.Figure()
@@ -320,32 +349,28 @@ else:
                        yaxis_title="순자산(억)", hovermode="x unified")
     st.plotly_chart(추이그림, width="stretch")
 
-    분해 = go.Figure()
     라벨 = [f"{g['종료일']:%y.%m}" for g in 추이["구간들"]]
-    분해.add_trace(go.Bar(x=라벨, y=[g["저축기여"] / 1e4 for g in 추이["구간들"]],
-                        name="저축", marker_color="#18A57A",
-                        hovertemplate="저축 %{y:,.0f}만원<extra></extra>"))
-    분해.add_trace(go.Bar(x=라벨, y=[g["시장기여"] / 1e4 for g in 추이["구간들"]],
-                        name="시장수익", marker_color="#E28A2B",
-                        hovertemplate="시장 %{y:,.0f}만원<extra></extra>"))
-    분해.update_layout(barmode="relative", height=300,
-                     margin=dict(l=10, r=10, t=30, b=10),
-                     yaxis_title="증감(만원)",
-                     legend=dict(orientation="h", y=1.18))
+    증감값 = [g["총증감"] / 1e4 for g in 추이["구간들"]]
+    분해 = go.Figure(go.Bar(
+        x=라벨, y=증감값,
+        marker_color=["#18A57A" if v >= 0 else "#C0392B" for v in 증감값],
+        hovertemplate="%{x}<br>%{y:+,.0f}만원<extra></extra>"))
+    분해.add_hline(y=0, line_color="rgba(140,140,140,.8)")
+    분해.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10),
+                     yaxis_title="기간별 증감(만원)", showlegend=False)
     st.plotly_chart(분해, width="stretch")
 
     구간표 = pd.DataFrame([{
         "구간": f"{g['시작일']} → {g['종료일']}",
         "순자산": round(g["끝"]),
-        "총증감": round(g["총증감"]),
-        "저축": round(g["저축기여"]),
-        "시장수익": round(g["시장기여"]),
-        "성장률(%)": round(g["성장률"], 1),
-        "투자수익률(%)": round(g["수익률"], 1),
+        "증감": round(g["총증감"]),
+        "성장률(%)": round(g["성장률"], 2),
+        "연율(CAGR %)": round(g["CAGR"], 2),
+        "일수": g["일수"],
     } for g in 추이["구간들"]])
     st.dataframe(구간표.style.format(
-        {"순자산": "{:,}", "총증감": "{:+,}", "저축": "{:+,}", "시장수익": "{:+,}",
-         "성장률(%)": "{:+.1f}", "투자수익률(%)": "{:+.1f}"}),
+        {"순자산": "{:,}", "증감": "{:+,}",
+         "성장률(%)": "{:+.2f}", "연율(CAGR %)": "{:+.2f}"}),
         width="stretch", hide_index=True)
 
     st.info(
@@ -366,9 +391,12 @@ else:
                 if a:
                     st.caption(
                         f"💰 연봉 관리 자료 연계 — {기록들[-1]['year']}년 연봉 "
-                        f"{ui.억(연봉)} 기준으로 연간 저축 {ui.억(a['연간저축'])} "
-                        f"(저축률 {a['저축률']:.1f}%) · 순자산은 연봉의 "
-                        f"{a['연봉배수']:.1f}배입니다.")
+                        f"{ui.억(연봉)} 기준으로 순자산이 **연평균 "
+                        f"{ui.억(a['연간증가'])}** 씩 늘었습니다 "
+                        f"(연봉의 {a['연봉대비']:.0f}%). "
+                        f"현재 순자산은 연봉의 {a['연봉배수']:.1f}배입니다.\n\n"
+                        "※ 저축률이 아닙니다. 시장 수익이 포함된 값이라 "
+                        "연봉을 넘을 수도 있습니다.")
         except Exception:  # noqa: BLE001
             pass
 
