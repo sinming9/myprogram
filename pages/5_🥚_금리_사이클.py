@@ -13,6 +13,7 @@ from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import egg_cycle as EC  # noqa: E402
 from engines import fedwatch as FW  # noqa: E402
+from engines import yields as YD  # noqa: E402
 
 require_login(page_title="금리 사이클", page_icon="🥚", layout="centered")
 ui.모바일_스타일()
@@ -344,6 +345,132 @@ st.subheader("기준금리 추이")
 추이.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10),
                   yaxis_title="%", hovermode="x unified")
 st.plotly_chart(추이, width="stretch")
+
+# ==========================================================================
+# 국채 수익률 곡선
+# ==========================================================================
+st.divider()
+st.subheader("🇺🇸 국채 수익률 곡선")
+st.caption("정책금리는 중앙은행이 정하지만 **국채금리는 시장이 정합니다.** "
+           "둘이 따로 움직일 때가 중요한 국면입니다.")
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def 곡선_가져오기(키있음, 키):
+    return YD.곡선_조회(키 if 키있음 else None)
+
+
+fred키 = None
+for _이름 in ("FRED_API_KEY", "fred_api_key"):
+    try:
+        fred키 = st.secrets[_이름]
+        break
+    except Exception:  # noqa: BLE001
+        fred키 = os.environ.get(_이름.upper())
+        if fred키:
+            break
+
+with st.spinner("국채 수익률을 불러오는 중이에요..."):
+    곡선자료, 곡선출처, 곡선기록 = 곡선_가져오기(bool(fred키), fred키 or "")
+
+수동곡선 = 설정.get("수동곡선") or {}
+if 곡선자료:
+    현재값 = YD.최근값(곡선자료)
+    기준일표시 = max(점들[-1][0] for 점들 in 곡선자료.values()).isoformat()
+else:
+    현재값 = {k: float(수동곡선.get(k) or YD.기본값[k])
+            for k in YD.기본_만기}
+    기준일표시 = 수동곡선.get("기준일") or YD.기본값["기준일"]
+
+ui.카드_줄([
+    (f"{k} 국채", f"{현재값[k]:.2f}%",
+     (f"{YD.변화(곡선자료, k, 30):+.0f}bp (30일)"
+      if 곡선자료 and YD.변화(곡선자료, k, 30) is not None else "직접 입력"))
+    for k in YD.기본_만기 if k in 현재값
+] + [("기준금리 대비", f"{현재값.get('30년', 0) - 상태.rate:+.2f}%p",
+      "30년물 − 정책금리")], 열수=2)
+st.caption(f"기준일 {기준일표시} · 출처 {곡선출처}")
+
+# ---- 스프레드 ----
+스프 = YD.스프레드(현재값)
+if 스프:
+    칸 = st.columns(len(스프))
+    for col, (이름, d) in zip(칸, 스프.items()):
+        col.metric(이름, f"{d['값']:+.2f}%p",
+                   "역전" if d["역전"] else None,
+                   delta_color="inverse" if d["역전"] else "off")
+    역전목록 = [k for k, d in 스프.items() if d["역전"]]
+    if 역전목록:
+        st.error(f"**{', '.join(역전목록)} 역전** — 단기금리가 장기금리보다 높습니다. "
+                 "과거 침체를 앞두고 자주 나타난 모양이라 경기 신호로 읽히지만, "
+                 "역전 뒤 실제 침체까지의 시차는 매번 크게 달랐습니다.", icon="⚠️")
+
+# ---- 곡선 모양 ----
+if 곡선자료:
+    모양 = YD.곡선_모양(곡선자료, "2년", "30년", 30)
+    if 모양["유형"] != "판단 보류":
+        색 = {"베어 스티프닝": "warning", "베어 플래트닝": "warning",
+             "불 스티프닝": "info", "불 플래트닝": "info"}[모양["유형"]]
+        getattr(st, 색)(
+            f"**최근 30일: {모양['유형']}** — {모양['설명']}\n\n"
+            f"2년 {모양['단기변화']:+.0f}bp · 30년 {모양['장기변화']:+.0f}bp "
+            f"(차이 {모양['스프레드변화']:+.0f}bp)\n\n"
+            f"**통상 해석** — {모양['통상해석']}\n\n"
+            f"**영향** — {모양['영향']}")
+
+    곡선그림 = go.Figure()
+    색표 = {"2년": "#18A57A", "10년": "#2B6ED5", "30년": "#C0392B"}
+    for 이름, 점들 in 곡선자료.items():
+        곡선그림.add_trace(go.Scatter(
+            x=[d for d, _ in 점들], y=[v for _, v in 점들], mode="lines",
+            name=f"{이름} 국채", line=dict(color=색표.get(이름), width=2),
+            hovertemplate=f"{이름} %{{y:.2f}}%<extra></extra>"))
+    곡선그림.add_hline(y=상태.rate, line_dash="dot",
+                   line_color="rgba(140,140,140,.8)")
+    곡선그림.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10),
+                       yaxis_title="%", hovermode="x unified",
+                       legend=dict(orientation="h", y=1.15))
+    st.plotly_chart(곡선그림, width="stretch")
+    st.caption(f"회색 점선 = 현재 기준금리 {상태.rate:.2f}%")
+
+# ---- 정책금리 대비 · 주담대 ----
+if "30년" in 현재값:
+    p = YD.정책금리_대비(현재값["30년"], 상태.rate)
+    st.caption(f"📌 {p['상태']} (30년물 − 정책금리 = {p['차이']:+.2f}%p)")
+if "10년" in 현재값:
+    st.caption(f"🏠 {YD.주담대_영향(현재값['10년'])}")
+
+with st.expander("⚙️ 국채 수익률 직접 입력 / 조회 내역"):
+    for 줄 in 곡선기록:
+        st.text("  " + 줄)
+    if not fred키:
+        st.caption("FRED 키를 넣으면 자동으로 받아옵니다. "
+                   "🔑 자동 조회 설정에서 `fred_api_key` 를 넣으세요. "
+                   "없으면 아래에 직접 넣으시면 됩니다.")
+    y1, y2, y3 = st.columns(3)
+    입력 = {}
+    for col, 이름 in zip((y1, y2, y3), YD.기본_만기):
+        입력[이름] = col.number_input(
+            f"{이름} (%)", min_value=0.0, max_value=25.0, step=0.01,
+            value=float(수동곡선.get(이름) or YD.기본값[이름]),
+            format="%.2f", key=f"곡선_{이름}")
+    기준입력 = st.text_input("기준일", value=수동곡선.get("기준일") or YD.기본값["기준일"],
+                          key="곡선_기준일")
+    if st.button("직접 입력한 값 쓰기", width="stretch"):
+        설정["수동곡선"] = {**입력, "기준일": 기준입력}
+        st.cache_data.clear()
+        st.rerun()
+    st.caption("내장 기본값은 2026년 8월 18일 보도 기준입니다 "
+               "(30년 5.31% · 10년 4.72%). 시간이 지나면 직접 갱신하시거나 "
+               "FRED 키를 넣으세요.")
+
+st.warning(
+    "**곡선 모양의 해석은 '통상' 그렇다는 것이지 법칙이 아닙니다.** "
+    "특히 지금처럼 재정적자·국채 공급 같은 **수급 요인**이 장기금리를 밀어 올리는 "
+    "국면에서는 교과서적 해석이 잘 안 맞습니다. 물가가 둔화되는데도 장기금리가 "
+    "오를 수 있고, 중앙은행이 정책금리를 내려도 장기금리는 안 내려갈 수 있습니다.\n\n"
+    "달걀 모형은 **정책금리**만 봅니다. 장기금리가 따로 움직이는 국면에서는 "
+    "위 달걀 위치와 여기 곡선을 함께 보셔야 합니다.", icon="⚠️")
 
 # ==========================================================================
 # 6개 국면 표
