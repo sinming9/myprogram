@@ -170,6 +170,8 @@ def _세션_유효한가() -> bool:
     "engines.egg_cycle": ["compute_state", "이력_불러오기", "egg_outline",
                          "국면_자산방향", "배분_대조", "국면_방향"],
     "engines.fedwatch": ["미국_전망", "확률_계산", "다음_회의"],
+    "engines.yields": ["곡선_조회", "최근값", "스프레드", "곡선_모양",
+                      "정책금리_대비", "주담대_영향", "기본값", "기본_만기"],
     "engines.fx": ["환율_가져오기", "평균_계산", "금액표시"],
     "engines.loan": ["스케줄_생성", "요약"],
     "engines.property_tax": ["calculate", "add_or_update_history"],
