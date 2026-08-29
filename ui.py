@@ -260,3 +260,32 @@ def 페이지_메뉴(현재파일: str = ""):
             with col:
                 st.page_link(경로, label=f"{아이콘} {이름}")
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ==========================================================================
+# 차트 그리기 — 고정형
+# ==========================================================================
+#  확대·축소·이동을 끕니다. 휴대폰에서 스크롤하다 차트를 건드리면
+#  의도치 않게 확대되거나 그래프가 밀려서 보기 나빠집니다.
+#  마우스를 올렸을 때 값이 보이는 것(hover)은 그대로 둡니다.
+
+차트_설정 = {
+    "displayModeBar": False,   # 위쪽 카메라·돋보기 아이콘 줄 숨김
+    "scrollZoom": False,       # 휠·두 손가락 확대 끔
+    "doubleClick": False,      # 두 번 눌러 초기화 끔
+    "displaylogo": False,
+    "staticPlot": False,       # hover 는 살립니다
+}
+
+
+def 차트(fig, key=None, **k):
+    """확대·축소가 안 되는 고정 차트로 그립니다.
+
+    st.plotly_chart 대신 이걸 쓰면 앱 전체가 같은 방식으로 동작합니다.
+    """
+    try:
+        fig.update_xaxes(fixedrange=True)
+        fig.update_yaxes(fixedrange=True)
+    except Exception:  # noqa: BLE001
+        pass
+    st.plotly_chart(fig, config=차트_설정, width="stretch", key=key, **k)

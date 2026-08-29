@@ -263,8 +263,7 @@ if 요약들:
                                 xaxis=dict(visible=False), yaxis=dict(visible=False),
                                 plot_bgcolor="rgba(0,0,0,0)",
                                 paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
-                            st.plotly_chart(fig, width="stretch",
-                                            key=f"g_{item['이름']}")
+                            ui.차트(fig, key=f"g_{item['이름']}")
 
                     if item.get("막대"):
                         fig = go.Figure(go.Bar(
@@ -277,8 +276,7 @@ if 요약들:
                             yaxis=dict(visible=False),
                             plot_bgcolor="rgba(0,0,0,0)",
                             paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
-                        st.plotly_chart(fig, width="stretch",
-                                        key=f"b_{item['이름']}")
+                        ui.차트(fig, key=f"b_{item['이름']}")
 
                     if item.get("도넛"):
                         fig = go.Figure(go.Pie(
@@ -292,8 +290,7 @@ if 요약들:
                             height=110, margin=dict(l=0, r=0, t=4, b=0),
                             showlegend=False, plot_bgcolor="rgba(0,0,0,0)",
                             paper_bgcolor="rgba(0,0,0,0)")
-                        st.plotly_chart(fig, width="stretch",
-                                        key=f"p_{item['이름']}")
+                        ui.차트(fig, key=f"p_{item['이름']}")
 
                     st.caption(item.get("덧말", ""))
                     st.page_link(item["경로"], label="자세히 보기", icon="➡️")
@@ -311,42 +308,42 @@ elif not 손님:
 # 전체 프로그램 목록
 # ==========================================================================
 st.divider()
-st.subheader("전체 프로그램")
+with st.expander("📋 전체 프로그램 목록", expanded=False):
 
-프로그램 = [
-    ("🏦", "대출 상환 계산기", "고정→변동금리, 날짜 기준 중도상환, 중도상환수수료",
-     "pages/1_🏦_대출_상환_계산기.py"),
-    ("💱", "환전 타이밍", "달러·엔·유로·위안·싱달러의 기간별 평균 대비 현재 환율",
-     "pages/2_💱_환전_타이밍.py"),
-    ("🏠", "재산세 · 종합부동산세", "공시가격·지분으로 7월/9월 재산세와 12월 종부세",
-     "pages/3_🏠_재산세_종부세.py"),
-    ("💰", "연봉 · 급여 관리", "연도별 연봉, 물가 대비 실질 인상률, 내년 권장 연봉",
-     "pages/4_💰_연봉_급여_관리.py"),
-    ("🥚", "금리 사이클", "달걀 모형으로 보는 기준금리 위치 · FOMC 확률",
-     "pages/5_🥚_금리_사이클.py"),
-    ("🏷️", "양도세 계산기", "보유기간·주택수로 예상 양도소득세, 세제개편안 비교",
-     "pages/6_🏷️_양도세_계산기.py"),
-    ("📊", "자산배분 현황", "주식·ETF·펀드·코인을 계좌별로 · 금리 국면과 대조",
-     "pages/7_📊_자산배분.py"),
-    ("📥", "자료 가져오기", "예전 프로그램에서 저장한 JSON 파일 올리기",
-     "pages/8_📥_자료_가져오기.py"),
-]
+    프로그램 = [
+        ("🏦", "대출 상환 계산기", "고정→변동금리, 날짜 기준 중도상환, 중도상환수수료",
+         "pages/1_🏦_대출_상환_계산기.py"),
+        ("💱", "환전 타이밍", "달러·엔·유로·위안·싱달러의 기간별 평균 대비 현재 환율",
+         "pages/2_💱_환전_타이밍.py"),
+        ("🏠", "재산세 · 종합부동산세", "공시가격·지분으로 7월/9월 재산세와 12월 종부세",
+         "pages/3_🏠_재산세_종부세.py"),
+        ("💰", "연봉 · 급여 관리", "연도별 연봉, 물가 대비 실질 인상률, 내년 권장 연봉",
+         "pages/4_💰_연봉_급여_관리.py"),
+        ("🥚", "금리 사이클", "달걀 모형으로 보는 기준금리 위치 · FOMC 확률",
+         "pages/5_🥚_금리_사이클.py"),
+        ("🏷️", "양도세 계산기", "보유기간·주택수로 예상 양도소득세, 세제개편안 비교",
+         "pages/6_🏷️_양도세_계산기.py"),
+        ("📊", "자산배분 현황", "주식·ETF·펀드·코인을 계좌별로 · 금리 국면과 대조",
+         "pages/7_📊_자산배분.py"),
+        ("📥", "자료 가져오기", "예전 프로그램에서 저장한 JSON 파일 올리기",
+         "pages/8_📥_자료_가져오기.py"),
+    ]
 
-for 아이콘, 이름, 설명, 경로 in 프로그램:
+    for 아이콘, 이름, 설명, 경로 in 프로그램:
+        with st.container(border=True):
+            st.markdown(f"**{아이콘} {이름}**")
+            st.caption(설명)
+            st.page_link(경로, label=f"{이름} 열기", icon="➡️")
+
+    내프로그램 = addons.정상_목록()
     with st.container(border=True):
-        st.markdown(f"**{아이콘} {이름}**")
-        st.caption(설명)
-        st.page_link(경로, label=f"{이름} 열기", icon="➡️")
-
-내프로그램 = addons.정상_목록()
-with st.container(border=True):
-    st.markdown("**➕ 내 프로그램**")
-    if 내프로그램:
-        st.caption("`myapps/` 에서 찾은 프로그램 "
-                   + " · ".join(f"{p['아이콘']} {p['제목']}" for p in 내프로그램))
-    else:
-        st.caption("`myapps/` 폴더에 .py 파일을 넣으면 여기에 자동으로 나타납니다.")
-    st.page_link("pages/9_➕_내_프로그램.py", label="내 프로그램 열기", icon="➡️")
+        st.markdown("**➕ 내 프로그램**")
+        if 내프로그램:
+            st.caption("`myapps/` 에서 찾은 프로그램 "
+                       + " · ".join(f"{p['아이콘']} {p['제목']}" for p in 내프로그램))
+        else:
+            st.caption("`myapps/` 폴더에 .py 파일을 넣으면 여기에 자동으로 나타납니다.")
+        st.page_link("pages/9_➕_내_프로그램.py", label="내 프로그램 열기", icon="➡️")
 
 st.divider()
 with st.expander("ℹ️ 사용 / 관리 안내"):
