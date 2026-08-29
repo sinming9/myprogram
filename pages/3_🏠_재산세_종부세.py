@@ -153,178 +153,179 @@ hold_key = c4.selectbox("장기보유 세액공제", list(HOLD_OPTIONS),
 if not is_one:
     st.caption("고령자·장기보유 세액공제는 1세대 1주택자만 적용됩니다.")
 
+
 # ==========================================================================
-# 계산
+# 탭으로 묶기
 # ==========================================================================
-목록 = []
-고지액합 = 0.0
-for _, row in 부동산df.iterrows():
-    if pd.isna(row.get("공시가격(만원)")) or float(row["공시가격(만원)"]) <= 0:
-        continue
-    목록.append(PropertyRow(
-        name=str(row.get("이름") or "부동산"),
-        gongsi_manwon=float(row["공시가격(만원)"]),
-        share_pct=float(row["지분(%)"]) if not pd.isna(row.get("지분(%)")) else 100.0,
-    ))
-    고지 = row.get("실제 7월 고지액(선택)")
-    if not pd.isna(고지):
-        고지액합 += float(고지)
+탭결과, 탭기록 = st.tabs(["결과", "기록"])
 
-# 현재 입력 상태를 세션에 반영 (저장 버튼을 누르면 파일로 기록)
-자료.update({
-    "부동산": [{"이름": str(r.get("이름") or ""),
-              "공시가격(만원)": None if pd.isna(r.get("공시가격(만원)")) else float(r["공시가격(만원)"]),
-              "지분(%)": None if pd.isna(r.get("지분(%)")) else float(r["지분(%)"]),
-              "실제 7월 고지액(선택)": None if pd.isna(r.get("실제 7월 고지액(선택)"))
-              else float(r["실제 7월 고지액(선택)"])}
-             for _, r in 부동산df.iterrows()],
-    "is_one": bool(is_one),
-    "house_count": int(house_count),
-    "age_key": age_key,
-    "hold_key": hold_key,
-})
+with 탭결과:
+    목록 = []
+    고지액합 = 0.0
+    for _, row in 부동산df.iterrows():
+        if pd.isna(row.get("공시가격(만원)")) or float(row["공시가격(만원)"]) <= 0:
+            continue
+        목록.append(PropertyRow(
+            name=str(row.get("이름") or "부동산"),
+            gongsi_manwon=float(row["공시가격(만원)"]),
+            share_pct=float(row["지분(%)"]) if not pd.isna(row.get("지분(%)")) else 100.0,
+        ))
+        고지 = row.get("실제 7월 고지액(선택)")
+        if not pd.isna(고지):
+            고지액합 += float(고지)
+
+    # 현재 입력 상태를 세션에 반영 (저장 버튼을 누르면 파일로 기록)
+    자료.update({
+        "부동산": [{"이름": str(r.get("이름") or ""),
+                  "공시가격(만원)": None if pd.isna(r.get("공시가격(만원)")) else float(r["공시가격(만원)"]),
+                  "지분(%)": None if pd.isna(r.get("지분(%)")) else float(r["지분(%)"]),
+                  "실제 7월 고지액(선택)": None if pd.isna(r.get("실제 7월 고지액(선택)"))
+                  else float(r["실제 7월 고지액(선택)"])}
+                 for _, r in 부동산df.iterrows()],
+        "is_one": bool(is_one),
+        "house_count": int(house_count),
+        "age_key": age_key,
+        "hold_key": hold_key,
+    })
 
 
-# ※ 부동산이 하나도 없어도 여기서 멈추지 않습니다.
-#   예전에는 st.stop() 으로 끝내버려서, 표를 비우면 저장 버튼도
-#   파일 불러오기도 화면에 나오지 않았습니다. (불러올 방법이 없어짐)
-if not 목록:
-    st.divider()
-    st.info("공시가격이 입력된 부동산이 없습니다. 위 표에 한 줄 이상 넣거나, "
-            "맨 아래 **저장 / 불러오기** 에서 설정 파일을 올려주세요.", icon="📝")
-    저장_불러오기("property_tax", 자료, "재산세_설정", "_재산세_적용대기",
-              파일해석=_파일해석,
-              도움말="예전 계산기의 property_tax_settings.json / "
-                   "property_tax_history.json 도 올릴 수 있습니다.")
-    st.stop()
+    # ※ 부동산이 하나도 없어도 여기서 멈추지 않습니다.
+    #   예전에는 st.stop() 으로 끝내버려서, 표를 비우면 저장 버튼도
+    #   파일 불러오기도 화면에 나오지 않았습니다. (불러올 방법이 없어짐)
+    if not 목록:
+        st.divider()
+        st.info("공시가격이 입력된 부동산이 없습니다. 위 표에 한 줄 이상 넣거나, "
+                "맨 아래 **저장 / 불러오기** 에서 설정 파일을 올려주세요.", icon="📝")
+        저장_불러오기("property_tax", 자료, "재산세_설정", "_재산세_적용대기",
+                  파일해석=_파일해석,
+                  도움말="예전 계산기의 property_tax_settings.json / "
+                       "property_tax_history.json 도 올릴 수 있습니다.")
+        st.stop()
 
-결과 = calculate(목록, is_one, int(house_count),
-                AGE_OPTIONS[age_key], HOLD_OPTIONS[hold_key],
-                고지액합 if 고지액합 > 0 else None)
+    결과 = calculate(목록, is_one, int(house_count),
+                    AGE_OPTIONS[age_key], HOLD_OPTIONS[hold_key],
+                    고지액합 if 고지액합 > 0 else None)
 
-# 현재 입력 상태를 세션에 반영 (저장 버튼을 누르면 파일로 기록)
-st.divider()
-st.subheader("연간 납부 예정액")
-ui.카드_줄([
-    ("7월 재산세", won(결과.july_total),
-     "실제 고지액 기준" if 결과.paid_july else "계산값"),
-    ("9월 재산세", won(결과.sep_total),
-     "7월 고지액으로 보정됨" if 결과.paid_july else ("7월 일괄고지" if 결과.lump_july else "계산값")),
-    ("12월 종부세+농특세", won(결과.j_total),
-     "중과세율 적용" if (결과.heavy and 결과.j_base > 1.2e9) else "일반세율"),
-    ("연간 합계", won(결과.july_total + 결과.sep_total + 결과.j_total), ""),
-], 열수=2)
+    # 현재 입력 상태를 세션에 반영 (저장 버튼을 누르면 파일로 기록)
+    st.subheader("연간 납부 예정액")
+    ui.카드_줄([
+        ("7월 재산세", won(결과.july_total),
+         "실제 고지액 기준" if 결과.paid_july else "계산값"),
+        ("9월 재산세", won(결과.sep_total),
+         "7월 고지액으로 보정됨" if 결과.paid_july else ("7월 일괄고지" if 결과.lump_july else "계산값")),
+        ("12월 종부세+농특세", won(결과.j_total),
+         "중과세율 적용" if (결과.heavy and 결과.j_base > 1.2e9) else "일반세율"),
+        ("연간 합계", won(결과.july_total + 결과.sep_total + 결과.j_total), ""),
+    ], 열수=2)
 
-with st.expander("🏠 부동산별 재산세 상세 (연간, 내 지분 기준)", expanded=True):
-    상세df = pd.DataFrame([{
-        "이름": d.name,
-        "공시가격(만원)": d.gongsi_manwon,
-        "지분(%)": d.share_pct,
-        "공정시장가액비율": f"{d.fmv * 100:.0f}%",
-        "세율": d.rate_type,
-        "본세": round(d.my_main),
-        "도시지역분": round(d.my_city),
-        "지방교육세": round(d.my_edu),
-        "합계": round(d.my_total),
-    } for d in 결과.details])
-    st.dataframe(
-        상세df.style.format({
-            "공시가격(만원)": "{:,.0f}", "지분(%)": "{:.1f}",
-            "본세": "{:,}", "도시지역분": "{:,}", "지방교육세": "{:,}", "합계": "{:,}",
-        }),
-        width="stretch", hide_index=True,
-    )
-    꼬리 = " (합산 20만원 이하 → 7월 일괄고지)" if 결과.lump_july else ""
-    st.caption(f"전체 재산세 연간 합계: **{won(결과.p_total_sum)}**{꼬리}")
-
-if 결과.paid_july:
-    with st.expander("🧾 7월 고지액 보정 상세", expanded=True):
-        st.markdown(
-            f"- 계산된 7월분: {won(결과.july_calc)}\n"
-            f"- 실제 고지액: {won(결과.paid_july)}\n"
-            f"- 차이: {'+' if 결과.diff >= 0 else ''}{결과.diff:,.0f}원\n"
-            f"- 보정 배율: × {결과.ratio:.3f} (9월분에 적용)"
+    with st.expander("🏠 부동산별 재산세 상세 (연간, 내 지분 기준)", expanded=True):
+        상세df = pd.DataFrame([{
+            "이름": d.name,
+            "공시가격(만원)": d.gongsi_manwon,
+            "지분(%)": d.share_pct,
+            "공정시장가액비율": f"{d.fmv * 100:.0f}%",
+            "세율": d.rate_type,
+            "본세": round(d.my_main),
+            "도시지역분": round(d.my_city),
+            "지방교육세": round(d.my_edu),
+            "합계": round(d.my_total),
+        } for d in 결과.details])
+        st.dataframe(
+            상세df.style.format({
+                "공시가격(만원)": "{:,.0f}", "지분(%)": "{:.1f}",
+                "본세": "{:,}", "도시지역분": "{:,}", "지방교육세": "{:,}", "합계": "{:,}",
+            }),
+            width="stretch", hide_index=True,
         )
-        if abs(결과.diff) > 결과.july_calc * 0.05:
-            st.warning(
-                "차이가 5%를 넘습니다. 시가표준액 차이, 세부담상한제, 지역자원시설세 포함 여부 "
-                "중 하나가 원인일 수 있습니다.", icon="⚠️")
+        꼬리 = " (합산 20만원 이하 → 7월 일괄고지)" if 결과.lump_july else ""
+        st.caption(f"전체 재산세 연간 합계: **{won(결과.p_total_sum)}**{꼬리}")
 
-with st.expander("📄 종합부동산세 상세 (12월, 전체 합산)"):
-    st.markdown(
-        f"- 공제금액: {'12억원 (1세대1주택)' if 결과.is_one else '9억원'}\n"
-        f"- 과세표준 (공정 60%): {won(결과.j_base)}\n"
-        f"- 산출세액: {won(결과.j_gross)}"
-        f"{'  ← 3주택 이상 중과세율' if (결과.heavy and 결과.j_base > 1.2e9) else ''}\n"
-        f"- 재산세 중복분 공제: −{won(결과.p_credit)}\n"
-        f"- 세액공제 (고령+장기): −{won(결과.age_hold_credit)}"
-        f"{f'  ({결과.cred_rate * 100:.0f}%)' if 결과.cred_rate > 0 else ''}\n"
-        f"- 종부세 결정세액: {won(결과.j_net)}\n"
-        f"- 농어촌특별세 (20%): {won(결과.j_rural)}\n"
-        f"- **12월 납부 합계: {won(결과.j_total)}**"
-    )
+    if 결과.paid_july:
+        with st.expander("🧾 7월 고지액 보정 상세", expanded=True):
+            st.markdown(
+                f"- 계산된 7월분: {won(결과.july_calc)}\n"
+                f"- 실제 고지액: {won(결과.paid_july)}\n"
+                f"- 차이: {'+' if 결과.diff >= 0 else ''}{결과.diff:,.0f}원\n"
+                f"- 보정 배율: × {결과.ratio:.3f} (9월분에 적용)"
+            )
+            if abs(결과.diff) > 결과.july_calc * 0.05:
+                st.warning(
+                    "차이가 5%를 넘습니다. 시가표준액 차이, 세부담상한제, 지역자원시설세 포함 여부 "
+                    "중 하나가 원인일 수 있습니다.", icon="⚠️")
 
-# ==========================================================================
-# 연도별 기록
-# ==========================================================================
-st.divider()
-st.subheader("연도별 기록")
+    with st.expander("📄 종합부동산세 상세 (12월, 전체 합산)"):
+        st.markdown(
+            f"- 공제금액: {'12억원 (1세대1주택)' if 결과.is_one else '9억원'}\n"
+            f"- 과세표준 (공정 60%): {won(결과.j_base)}\n"
+            f"- 산출세액: {won(결과.j_gross)}"
+            f"{'  ← 3주택 이상 중과세율' if (결과.heavy and 결과.j_base > 1.2e9) else ''}\n"
+            f"- 재산세 중복분 공제: −{won(결과.p_credit)}\n"
+            f"- 세액공제 (고령+장기): −{won(결과.age_hold_credit)}"
+            f"{f'  ({결과.cred_rate * 100:.0f}%)' if 결과.cred_rate > 0 else ''}\n"
+            f"- 종부세 결정세액: {won(결과.j_net)}\n"
+            f"- 농어촌특별세 (20%): {won(결과.j_rural)}\n"
+            f"- **12월 납부 합계: {won(결과.j_total)}**"
+        )
 
-올해 = datetime.date.today().year
-기록연도 = st.number_input("기록할 연도", min_value=2000, max_value=2100,
-                       value=올해, step=1)
-if st.button("📅 이 결과를 연도별 기록에 저장", type="primary", width="stretch"):
-    자료["history"] = add_or_update_history(
-        자료.get("history", []), int(기록연도), 결과, datetime.date.today().isoformat())
-    성공, 메시지 = storage.저장하기("property_tax", 자료)
-    (st.success if 성공 else st.error)(메시지)
+with 탭기록:
+    st.subheader("연도별 기록")
 
-기록 = 자료.get("history", [])
-if 기록:
-    기록df = pd.DataFrame(기록)
-    표시 = 기록df.rename(columns={"year": "연도", "july": "7월", "sep": "9월",
-                               "jongbuse": "12월 종부세", "total": "합계",
-                               "saved_at": "저장일"})
-    st.dataframe(
-        표시.style.format({"7월": "{:,.0f}", "9월": "{:,.0f}",
-                          "12월 종부세": "{:,.0f}", "합계": "{:,.0f}"}),
-        width="stretch", hide_index=True,
-    )
+    올해 = datetime.date.today().year
+    기록연도 = st.number_input("기록할 연도", min_value=2000, max_value=2100,
+                           value=올해, step=1)
+    if st.button("📅 이 결과를 연도별 기록에 저장", type="primary", width="stretch"):
+        자료["history"] = add_or_update_history(
+            자료.get("history", []), int(기록연도), 결과, datetime.date.today().isoformat())
+        성공, 메시지 = storage.저장하기("property_tax", 자료)
+        (st.success if 성공 else st.error)(메시지)
 
-    fig = go.Figure()
-    for 열, 이름, 색 in (("july", "7월 재산세", "#3457d5"),
-                     ("sep", "9월 재산세", "#6C63B5"),
-                     ("jongbuse", "12월 종부세", "#C0392B")):
-        fig.add_trace(go.Bar(x=기록df["year"].astype(str), y=기록df[열], name=이름,
-                             marker_color=색))
-    fig.update_layout(barmode="stack", height=320, margin=dict(l=10, r=10, t=30, b=10),
-                      yaxis_title="원", legend=dict(orientation="h", y=1.15))
-    st.plotly_chart(fig, width="stretch")
+    기록 = 자료.get("history", [])
+    if 기록:
+        기록df = pd.DataFrame(기록)
+        표시 = 기록df.rename(columns={"year": "연도", "july": "7월", "sep": "9월",
+                                   "jongbuse": "12월 종부세", "total": "합계",
+                                   "saved_at": "저장일"})
+        st.dataframe(
+            표시.style.format({"7월": "{:,.0f}", "9월": "{:,.0f}",
+                              "12월 종부세": "{:,.0f}", "합계": "{:,.0f}"}),
+            width="stretch", hide_index=True,
+        )
 
-    예상 = estimate_next_year(기록)
-    if 예상:
-        st.info(
-            f"**{예상['year']}년 예상** — 7월 {won(예상['july'])} · 9월 {won(예상['sep'])} · "
-            f"12월 {won(예상['jongbuse'])} → 합계 **{won(예상['total'])}** "
-            f"(연평균 증가율 {예상['avg_growth'] * 100:+.1f}% 기준)", icon="📈")
+        fig = go.Figure()
+        for 열, 이름, 색 in (("july", "7월 재산세", "#3457d5"),
+                         ("sep", "9월 재산세", "#6C63B5"),
+                         ("jongbuse", "12월 종부세", "#C0392B")):
+            fig.add_trace(go.Bar(x=기록df["year"].astype(str), y=기록df[열], name=이름,
+                                 marker_color=색))
+        fig.update_layout(barmode="stack", height=320, margin=dict(l=10, r=10, t=30, b=10),
+                          yaxis_title="원", legend=dict(orientation="h", y=1.15))
+        ui.차트(fig)
+
+        예상 = estimate_next_year(기록)
+        if 예상:
+            st.info(
+                f"**{예상['year']}년 예상** — 7월 {won(예상['july'])} · 9월 {won(예상['sep'])} · "
+                f"12월 {won(예상['jongbuse'])} → 합계 **{won(예상['total'])}** "
+                f"(연평균 증가율 {예상['avg_growth'] * 100:+.1f}% 기준)", icon="📈")
+        else:
+            st.caption("연도별 기록이 2개 이상 쌓이면 내년 예상 세금을 계산해 드립니다.")
+
+        with st.expander("기록 지우기"):
+            지울연도 = st.selectbox("삭제할 연도", [h["year"] for h in 기록])
+            if st.button("이 연도 기록 삭제", width="stretch"):
+                자료["history"] = [h for h in 기록 if h["year"] != 지울연도]
+                storage.저장하기("property_tax", 자료)
+                st.rerun()
     else:
-        st.caption("연도별 기록이 2개 이상 쌓이면 내년 예상 세금을 계산해 드립니다.")
+        st.caption("아직 기록이 없습니다. 위에서 연도를 골라 저장해 보세요.")
 
-    with st.expander("기록 지우기"):
-        지울연도 = st.selectbox("삭제할 연도", [h["year"] for h in 기록])
-        if st.button("이 연도 기록 삭제", width="stretch"):
-            자료["history"] = [h for h in 기록 if h["year"] != 지울연도]
-            storage.저장하기("property_tax", 자료)
-            st.rerun()
-else:
-    st.caption("아직 기록이 없습니다. 위에서 연도를 골라 저장해 보세요.")
+    st.caption(
+        "※ 간이 계산기입니다. 세부담상한제·지역자원시설세·감면 특례 및 지분 소액특례는 반영되어 있지 않습니다. "
+        "정확한 세액은 홈택스 모의계산으로 확인하세요."
+    )
+
 
 st.divider()
-st.caption(
-    "※ 간이 계산기입니다. 세부담상한제·지역자원시설세·감면 특례 및 지분 소액특례는 반영되어 있지 않습니다. "
-    "정확한 세액은 홈택스 모의계산으로 확인하세요."
-)
-
 저장_불러오기("property_tax", 자료, "재산세_설정", "_재산세_적용대기",
           파일해석=_파일해석,
           도움말="예전 계산기의 property_tax_settings.json / "

@@ -284,7 +284,7 @@ with 탭국면:
                    scaleanchor="x", scaleratio=1),
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
     )
-    st.plotly_chart(fig, width="stretch")
+    ui.차트(fig)
     안내 = f"데이터 출처: {출처} · 왼쪽 = 금리 상승(호황기), 오른쪽 = 금리 하락(불황기)"
     if 예측 and 예측.get("방향") in ("인상", "인하") and 예측.get("확률", 0) >= 0.5:
         안내 += f" · 점선 = 다음 회의에서 {예측['방향']} 시 예상 위치"
@@ -323,7 +323,7 @@ with 탭금리:
                  annotation_text=f"사이클 저점 {상태.cycle_low:.2f}%", annotation_position="right")
     추이.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10),
                       yaxis_title="%", hovermode="x unified")
-    st.plotly_chart(추이, width="stretch")
+    ui.차트(추이)
 
     st.subheader("🇺🇸 국채 수익률 곡선")
     st.caption("정책금리는 중앙은행이 정하지만 **국채금리는 시장이 정합니다.** "
@@ -405,7 +405,7 @@ with 탭금리:
         곡선그림.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10),
                            yaxis_title="%", hovermode="x unified",
                            legend=dict(orientation="h", y=1.15))
-        st.plotly_chart(곡선그림, width="stretch")
+        ui.차트(곡선그림)
         st.caption(f"회색 점선 = 현재 기준금리 {상태.rate:.2f}%")
 
     # ---- 정책금리 대비 · 주담대 ----

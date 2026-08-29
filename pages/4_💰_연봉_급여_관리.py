@@ -160,7 +160,7 @@ with 탭1:
         fig1.update_layout(height=340, margin=dict(l=10, r=10, t=30, b=10),
                            yaxis_title="원", legend=dict(orientation="h", y=1.18),
                            hovermode="x unified")
-        st.plotly_chart(fig1, width="stretch")
+        ui.차트(fig1)
 
         st.markdown("##### 인상률과 물가상승률 비교")
         비교 = [r for r in 기록들 if r["raise"] is not None]
@@ -181,7 +181,7 @@ with 탭1:
             fig2.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10),
                                yaxis_title="%", legend=dict(orientation="h", y=1.18),
                                hovermode="x unified")
-            st.plotly_chart(fig2, width="stretch")
+            ui.차트(fig2)
 
 # ==========================================================================
 # 연도별 현황

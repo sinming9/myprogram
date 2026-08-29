@@ -226,7 +226,7 @@ with 탭비교:
                      xaxis=dict(title="순자산(억)", type="log"),
                      yaxis=dict(title="상위 %", autorange="reversed"),
                      legend=dict(orientation="h", y=1.15))
-    st.plotly_chart(곡선, width="stretch")
+    ui.차트(곡선)
 
     st.dataframe(pd.DataFrame([
         {"기준": "개인 (참고용)", "순자산": round(집계["순자산"]),
@@ -367,7 +367,7 @@ with 탭추이:
             hovertemplate="%{x|%Y-%m-%d}<br>%{y:.2f}억<extra></extra>"))
         추이그림.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10),
                            yaxis_title="순자산(억)", hovermode="x unified")
-        st.plotly_chart(추이그림, width="stretch")
+        ui.차트(추이그림)
 
         라벨 = [f"{g['종료일']:%y.%m}" for g in 추이["구간들"]]
         증감값 = [g["총증감"] / 1e4 for g in 추이["구간들"]]
@@ -378,7 +378,7 @@ with 탭추이:
         분해.add_hline(y=0, line_color="rgba(140,140,140,.8)")
         분해.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10),
                          yaxis_title="기간별 증감(만원)", showlegend=False)
-        st.plotly_chart(분해, width="stretch")
+        ui.차트(분해)
 
         구간표 = pd.DataFrame([{
             "구간": f"{g['시작일']} → {g['종료일']}",

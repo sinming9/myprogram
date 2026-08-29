@@ -103,7 +103,7 @@ gauge = go.Figure(go.Indicator(
     },
 ))
 gauge.update_layout(height=250, margin=dict(l=20, r=20, t=55, b=10))
-st.plotly_chart(gauge, width="stretch")
+ui.차트(gauge)
 
 st.divider()
 st.subheader("기간별 평균 대비 현재가")
@@ -141,7 +141,7 @@ for 라벨, 값 in 믿을만한.items():
                     annotation_text=라벨, annotation_position="right")
 trend.update_layout(height=380, margin=dict(l=10, r=10, t=20, b=10),
                     yaxis_title=통화["chart_label"], hovermode="x unified")
-st.plotly_chart(trend, width="stretch")
+ui.차트(trend)
 
 st.caption(f"데이터 출처: {출처} · 1시간 단위로 캐시됩니다.")
 if len(기록) > 1:
