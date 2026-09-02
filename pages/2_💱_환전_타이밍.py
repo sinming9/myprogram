@@ -26,9 +26,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
-from engines.fx import (AVG_COLORS, CURRENCIES, MAIN_COLOR, 금액표시,  # noqa: E402
-                        단기_메시지, 단기_요약, 평균_계산, 타이밍_메시지,
-                        환율_가져오기)
+# fx 는 이름을 하나씩 가져오지 않고 모듈 전체로 받습니다.
+#  ※ from engines.fx import 단기_요약 … 처럼 이름을 직접 가져오면,
+#    engines/fx.py 가 예전 버전일 때 ImportError 가 로그인 화면보다
+#    먼저 터집니다. 그러면 Streamlit 이 원인을 가리고
+#    "error message is redacted" 만 보여주어서, 어떤 파일을 다시
+#    올려야 하는지 화면에서 알 수 없습니다.
+#    모듈로 받으면 import 자체는 성공하므로, 아래에서 한글로 안내합니다.
+from engines import fx as FX  # noqa: E402
 
 require_login(page_title="환전 타이밍", page_icon="💱", layout="centered")
 ui.모바일_스타일()
@@ -36,13 +41,26 @@ ui.모바일_스타일()
 ui.테마_안내()
 storage.저장소_사이드바()
 
+# 계산 파일이 예전 버전이면 여기서 멈추고 무엇을 올려야 하는지 알려줍니다.
+#  (이 페이지가 쓰는 단기 비교 기능은 2026-09-02 판부터 있습니다)
+if not hasattr(FX, "단기_요약"):
+    st.error("**engines/fx.py 가 예전 버전입니다.**", icon="🔄")
+    st.markdown(
+        "이 페이지는 `engines/fx.py` 의 단기 비교 기능(1일 전·1주일 전)을 씁니다. "
+        "지금 올라와 있는 파일에는 그 기능이 없습니다.\n\n"
+        "1. GitHub 저장소의 **engines 폴더로 들어가서** `fx.py` 를 다시 올리세요.\n"
+        "   (저장소 첫 화면에 올리면 `engines/fx.py` 가 아니라 새 파일이 생깁니다)\n"
+        "2. Streamlit Cloud 오른쪽 아래 **Manage app → Reboot app** 을 누르세요.\n"
+        "   공용 파일은 앱을 다시 시작해야 바뀝니다.")
+    st.stop()
+
 ui.페이지_메뉴(__file__)
 st.title("💱 환전 타이밍")
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def 데이터_조회(통화이름: str):
-    return 환율_가져오기(CURRENCIES[통화이름])
+    return FX.환율_가져오기(FX.CURRENCIES[통화이름])
 
 
 # 통화 선택은 본문 맨 위에 둡니다.
@@ -54,7 +72,7 @@ def 데이터_조회(통화이름: str):
     "중국 위안 (CNY)": "🇨🇳 위안",
     "싱가포르 달러 (SGD)": "🇸🇬 싱달러",
 }
-선택 = ui.선택줄("환전할 통화", list(CURRENCIES), key="환율_통화",
+선택 = ui.선택줄("환전할 통화", list(FX.CURRENCIES), key="환율_통화",
               format_func=lambda c: 짧은이름.get(c, c))
 
 with st.sidebar:
@@ -74,7 +92,7 @@ with st.sidebar:
             "참고용 지표이며 투자·환전 조언은 아닙니다."
         )
 
-통화 = CURRENCIES[선택]
+통화 = FX.CURRENCIES[선택]
 
 try:
     with st.spinner("환율 데이터를 불러오는 중이에요..."):
@@ -86,11 +104,11 @@ except Exception as error:  # noqa: BLE001
 
 현재가 = float(df["Close"].iloc[-1])
 기준일 = df.index[-1].strftime("%Y년 %m월 %d일")
-평균, 신뢰 = 평균_계산(df)
+평균, 신뢰 = FX.평균_계산(df)
 믿을만한 = {k: v for k, v in 평균.items() if 신뢰[k]}
 저렴한수 = sum(현재가 < v for v in 믿을만한.values())
 삼년 = df.loc[df.index >= df.index.max() - pd.DateOffset(years=3), "Close"]
-단기 = 단기_요약(df)
+단기 = FX.단기_요약(df)
 단기표 = {r["라벨"]: r for r in 단기}
 
 
@@ -111,11 +129,11 @@ def _뱃지(라벨: str, 이름: str) -> str:
 
 ui.헤드라인(
     f"{짧은이름.get(선택, 선택)} · {통화['quote']} 기준 ({기준일} 종가)",
-    금액표시(현재가, 통화["unit"]),
+    FX.금액표시(현재가, 통화["unit"]),
     뱃지들=[b for b in (_뱃지("1일 전", "어제 대비"),
                      _뱃지("1주일 전", "지난주 대비")) if b])
 
-종류, 메시지 = 단기_메시지(단기)
+종류, 메시지 = FX.단기_메시지(단기)
 getattr(st, 종류)(메시지)
 
 
@@ -134,7 +152,7 @@ for 칸, 라벨 in zip(칸들, ["1일 전", "1주일 전", "1주일 평균"]):
     if not r.get("신뢰"):
         칸.metric(라벨, "자료 부족", help=r.get("설명", ""))
         continue
-    칸.metric(라벨, 금액표시(r["값"], 통화["unit"]),
+    칸.metric(라벨, FX.금액표시(r["값"], 통화["unit"]),
              f"{r['변동률']:+.2f}%", delta_color="inverse",
              help=f"{r['설명']} · 차이 {r['차이']:+,.2f}{통화['unit']}")
 
@@ -159,7 +177,7 @@ ui.섹션("과거 평균 대비", "몇 달~몇 년 흐름에서 지금이 어디
 
 if 믿을만한:
     st.markdown(f"**{len(믿을만한)}개 구간 중 {저렴한수}개** 평균보다 저렴해요")
-    종류, 메시지 = 타이밍_메시지(round(저렴한수 * 5 / max(len(믿을만한), 1)))
+    종류, 메시지 = FX.타이밍_메시지(round(저렴한수 * 5 / max(len(믿을만한), 1)))
     getattr(st, 종류)(메시지)
 else:
     st.warning("과거 자료가 부족해서 평균과 비교할 수 없어요.", icon="⚠️")
@@ -179,7 +197,7 @@ gauge = go.Figure(go.Indicator(
     gauge={
         "axis": {"range": [float(삼년.min()), float(삼년.max())],
                  "tickwidth": 1, "tickcolor": "rgba(128,128,128,.5)"},
-        "bar": {"color": MAIN_COLOR, "thickness": 0.7},
+        "bar": {"color": FX.MAIN_COLOR, "thickness": 0.7},
         "bgcolor": "rgba(0,0,0,0)",
         "borderwidth": 0,
         "steps": [
@@ -203,7 +221,7 @@ for i in range(0, len(항목), 3):
             col.metric(라벨, "자료 부족", help="이 기간을 덮을 만큼 과거 자료가 없습니다")
             continue
         차이 = (현재가 - 값) / 값 * 100
-        col.metric(라벨, 금액표시(값, 통화["unit"]), f"{차이:+.2f}%",
+        col.metric(라벨, FX.금액표시(값, 통화["unit"]), f"{차이:+.2f}%",
                    delta_color="inverse")
 
 
@@ -244,7 +262,7 @@ st.divider()
 
 trend = go.Figure()
 trend.add_trace(go.Scatter(x=최근.index, y=최근["Close"], mode="lines", name="종가",
-                           line=dict(color=MAIN_COLOR, width=2)))
+                           line=dict(color=FX.MAIN_COLOR, width=2)))
 
 # 1개월 화면에서는 몇 년 평균선이 화면 밖으로 나가 쓸모가 없습니다.
 # 대신 단기 기준선(1주일 평균)을 깔아 줍니다.
@@ -262,11 +280,11 @@ else:
 # 1개월 1,404원) 글자가 겹쳐서 못 읽습니다. 그래서 이름은 위쪽 범례에
 # 몰아두고, 선에는 색만 남겼습니다. 색이 곧 이름입니다.
 for 라벨, 값 in 기준선:
-    trend.add_hline(y=값, line_dash="dot", line_color=AVG_COLORS[라벨])
+    trend.add_hline(y=값, line_dash="dot", line_color=FX.AVG_COLORS[라벨])
     trend.add_trace(go.Scatter(
         x=[최근.index[-1]], y=[값], mode="lines",
-        line=dict(color=AVG_COLORS[라벨], width=2, dash="dot"),
-        name=f"{라벨} {금액표시(값, 통화['unit'])}",
+        line=dict(color=FX.AVG_COLORS[라벨], width=2, dash="dot"),
+        name=f"{라벨} {FX.금액표시(값, 통화['unit'])}",
         hoverinfo="skip", showlegend=True))
 
 trend.update_layout(height=390, margin=dict(l=10, r=14, t=64, b=10),
