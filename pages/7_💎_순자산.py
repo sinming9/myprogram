@@ -150,17 +150,58 @@ if "순자산_설정" not in st.session_state:
     st.session_state["순자산_설정"] = 설정
     st.session_state["순자산_옮김안내"] = 옮겼음
 st.session_state.setdefault("순자산_표버전", 0)
+st.session_state.setdefault("순자산_기록버전", 0)
+
+
+# ==========================================================================
+# 표의 '원본' 은 세션에 따로 고정해 둡니다
+# ==========================================================================
+#  ※ st.data_editor 는 [원본 + 편집내역] 을 합쳐 결과를 만듭니다. 그리고
+#    편집내역은 '몇 번째 줄' 이라는 **위치**로 기록됩니다.
+#      · 값 수정 : row_pos = int(row_id)
+#      · 줄 삭제 : df.drop(df.index[deleted_rows])
+#    편집내역은 위젯이 살아 있는 동안 계속 남습니다.
+#
+#    그래서 편집 결과를 다시 원본으로 넣으면 같은 편집내역이 새 원본에
+#    또 적용됩니다. 줄을 지웠을 때가 특히 고약합니다.
+#
+#      원본 6줄 → 첫 줄 삭제 → 결과 5줄 → 이걸 원본으로 넣음
+#      → 편집내역에 아직 "0번째 줄 삭제" 가 남아 있어 또 첫 줄이 지워짐
+#      → 아무 칸이나 입력해 화면이 갱신될 때마다 첫 줄이 계속 사라집니다.
+#
+#    그래서 원본은 고정해 두고, 바깥에서 바뀔 때만(자동 반영 · 파일 불러오기 ·
+#    붙여넣기 · 오늘 기록 추가) 새로 담고 표를 새로 만듭니다(버전 올림).
+#    표를 새로 만들면 편집내역이 비워져서 두 번 적용되는 일이 없습니다.
+
+def _표원본_바꾸기(행들):
+    st.session_state["순자산_표원본"] = [dict(r) for r in (행들 or [])]
+    st.session_state["순자산_표버전"] += 1
+
+
+def _기록원본_바꾸기(기록들):
+    st.session_state["순자산_기록원본"] = [dict(r) for r in (기록들 or [])]
+    st.session_state["순자산_기록버전"] += 1
 
 
 def _설정_적용(데이터):
-    설정, 옮겼음 = _설정_정리(데이터 or {})
-    st.session_state["순자산_설정"] = 설정
+    새설정, 옮겼음 = _설정_정리(데이터 or {})
+    st.session_state["순자산_설정"] = 새설정
     st.session_state["순자산_옮김안내"] = 옮겼음
-    st.session_state["순자산_표버전"] += 1
+    # 파일을 불러오면 두 표의 원본이 모두 바뀝니다.
+    _표원본_바꾸기(새설정.get("자산표"))
+    _기록원본_바꾸기(새설정.get("기록"))
 
 
 불러온것_적용("_순자산_적용대기", _설정_적용)
 설정 = st.session_state["순자산_설정"]
+
+# 원본을 아직 안 담았으면(첫 방문) 저장된 값으로 한 번 담습니다.
+if "순자산_표원본" not in st.session_state:
+    st.session_state["순자산_표원본"] = [
+        dict(r) for r in (설정.get("자산표") or NW.기본_자산표())]
+if "순자산_기록원본" not in st.session_state:
+    st.session_state["순자산_기록원본"] = [dict(r) for r in (설정.get("기록") or [])]
+
 storage.임시서버_안내()
 
 if st.session_state.pop("순자산_옮김안내", False):
@@ -183,9 +224,12 @@ if 자동["메모"]:
     if 버튼칸.button("🔄 표에 반영", width="stretch",
                    help="정해진 이름의 줄을 찾아 금액만 갈아끼웁니다. "
                         "소유자·지분은 그대로 둡니다."):
-        새것, 바뀐것 = NW.자동값_반영(설정["자산표"], 자동)
+        # 지금 화면에 보이는 값(설정["자산표"] = 지난 리런의 읽기 결과)에
+        # 자동 수집값을 얹고, 그걸 새 원본으로 삼습니다.
+        바탕 = 설정.get("자산표") or st.session_state["순자산_표원본"]
+        새것, 바뀐것 = NW.자동값_반영(바탕, 자동)
         설정["자산표"] = 새것
-        st.session_state["순자산_표버전"] += 1
+        _표원본_바꾸기(새것)
         st.session_state["순자산_반영결과"] = 바뀐것
         st.rerun()
 
@@ -198,7 +242,9 @@ if 바뀐것 is not None:
 
 열정의 = {"구분": "text", "항목": "text", "금액": "number", "소유자": "text",
         "내 지분(%)": "number", "만기일": "date", "메모": "text"}
-기준표 = 표만들기(설정.get("자산표") or NW.기본_자산표(), 열정의)
+# ★ 원본은 세션에 고정된 것을 씁니다. 편집 결과(설정["자산표"])를 여기에
+#   넣으면 편집내역이 두 번 적용되어 줄이 사라집니다. 위 설명 참고.
+기준표 = 표만들기(st.session_state["순자산_표원본"] or NW.기본_자산표(), 열정의)
 
 편집표 = st.data_editor(
     기준표, num_rows="dynamic", width="stretch",
@@ -499,12 +545,15 @@ with 탭추이:
     설정["기록기준"] = "가구" if 기준선택.startswith("가구") else "개인"
     값열 = "순자산" if 설정["기록기준"] == "가구" else "개인순자산"
 
+    # 기록 표도 자산표와 같은 이유로 원본을 고정해 씁니다.
+    #  ('기록' 은 버튼·붙여넣기로 바꿀 때 쓸 지금 값입니다)
     기록 = list(설정.get("기록") or [])
     기록열 = {"날짜": "date", "순자산": "number", "개인순자산": "number",
             "메모": "text"}
     기록df = st.data_editor(
-        표만들기(기록, 기록열), num_rows="dynamic", width="stretch",
-        key=f"순자산_기록_{st.session_state['순자산_표버전']}",
+        표만들기(st.session_state["순자산_기록원본"], 기록열),
+        num_rows="dynamic", width="stretch",
+        key=f"순자산_기록_{st.session_state['순자산_기록버전']}",
         column_config={
             "날짜": st.column_config.DateColumn(format="YYYY-MM-DD",
                                               min_value=date(1990, 1, 1),
@@ -524,7 +573,7 @@ with 탭추이:
                     "순자산": int(가구["순자산"]),
                     "개인순자산": int(개인["순자산"]), "메모": ""})
         설정["기록"] = sorted(새기록, key=lambda r: str(r["날짜"]))
-        st.session_state["순자산_표버전"] += 1
+        _기록원본_바꾸기(설정["기록"])
         성공, 메시지 = storage.저장하기(저장키, 설정)
         (st.success if 성공 else st.error)(메시지)
         st.rerun()
@@ -565,7 +614,7 @@ with 탭추이:
                         묶[키] = r
                     합본 = sorted(묶.values(), key=lambda r: str(r["날짜"]))
                 설정["기록"] = 합본
-                st.session_state["순자산_표버전"] += 1
+                _기록원본_바꾸기(합본)
                 성공, 메시지 = storage.저장하기(저장키, 설정)
                 st.success(f"{len(새기록)}줄을 읽었습니다. (전체 {len(합본)}줄)  {메시지}")
                 st.rerun()
