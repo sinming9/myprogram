@@ -158,6 +158,12 @@ def 표만들기(자료목록, 열정의):
     ※ '날짜' 열을 datetime64 로 두면 pandas 3.x 에서 편집이 반영되지 않습니다.
       (DateColumn 은 datetime.date 를 돌려주는데 datetime64 열에 넣으면 TypeError)
       그래서 날짜 열은 반드시 object dtype + datetime.date 로 유지합니다.
+
+    ※ 숫자 열은 **항상 float64** 로 고정합니다.
+      pd.to_numeric 만 쓰면 값이 전부 정수일 때 int64, 하나라도 실수·빈칸이
+      섞이면 float64 가 되어 다시 그릴 때마다 dtype 이 오갑니다. 같은 표를
+      dtype 만 바꿔서 st.data_editor 에 다시 넘기면 Streamlit 이 그 표의
+      편집 내역을 버려서, 방금 넣은 값이 사라지고 두 번 입력해야 합니다.
     """
     df = pd.DataFrame(자료목록 or [])
     for 열, 종류 in 열정의.items():
@@ -166,7 +172,7 @@ def 표만들기(자료목록, 열정의):
         if 종류 == "date":
             df[열] = pd.Series([날짜로(v) for v in df[열]], dtype="object")
         elif 종류 == "number":
-            df[열] = pd.to_numeric(df[열], errors="coerce")
+            df[열] = pd.to_numeric(df[열], errors="coerce").astype("float64")
         elif 종류 == "bool":
             df[열] = df[열].fillna(False).astype(bool)
         else:
