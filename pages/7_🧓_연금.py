@@ -59,17 +59,16 @@ def 자동수집():
     자산 = storage.불러오기("portfolio", None)
     if 자산 and 자산.get("종목"):
         from engines import portfolio as PF
+        # ※ 예전에는 여기서 수량 × 단가를 직접 곱했습니다. 그러면 해외주식이
+        #   달러 그대로 더해져서 1/1,390 로 줄어듭니다. 이제 원화 환산까지
+        #   해 주는 공용 함수를 씁니다 (순자산 페이지와 같은 값이 나옵니다).
         for x in 자산["종목"]:
-            금액 = x.get("평가액(직접입력)")
-            if not 금액:
-                수량 = float(x.get("수량") or 0)
-                단가 = float(x.get("현재가(수동)") or x.get("평균단가") or 0)
-                금액 = 수량 * 단가
-            계좌 = x.get("계좌") or ""
+            금액 = PF.오프라인_평가액(x)
+            계좌 = str(x.get("계좌") or "").strip()
             if 계좌 in ("퇴직연금(DC)", "IRP"):
-                결과["퇴직"] += float(금액 or 0)
+                결과["퇴직"] += 금액
             elif 계좌 == "연금저축":
-                결과["저축"] += float(금액 or 0)
+                결과["저축"] += 금액
         if 결과["퇴직"] or 결과["저축"]:
             결과["출처"].append("📊 자산배분")
     급여 = storage.불러오기("salary", None)
