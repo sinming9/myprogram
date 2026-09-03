@@ -9,7 +9,8 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
+from app_kit import (날짜로, 불러온것_적용, 숫자로,  # noqa: E402
+                     저장_불러오기, 표만들기)
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import diagnosis as DG  # noqa: E402
 from engines import egg_cycle as EC  # noqa: E402
@@ -56,6 +57,11 @@ def _설정_적용(데이터):
         st.session_state["자산_종목"] = 데이터["종목"]
         st.session_state["자산_목표"] = 데이터.get("목표") or {}
         st.session_state["자산_ISA"] = 데이터.get("ISA") or {}
+        # ISA 납입 이력 표도 원본을 새로 담고 표를 다시 만듭니다
+        st.session_state["자산_ISA이력원본"] = [
+            dict(r) for r in ((데이터.get("ISA") or {}).get("납입이력") or [])]
+        st.session_state["자산_ISA이력버전"] = (
+            st.session_state.get("자산_ISA이력버전", 0) + 1)
         st.session_state["자산_표버전"] += 1
 
 
@@ -893,12 +899,6 @@ with 탭진단:
                             key="ISA_유형",
                             help="총급여 5,000만원 이하 또는 종합소득 3,800만원 이하면 서민형")
 
-        i3, i4 = st.columns(2)
-        ISA총납입 = i3.number_input("지금까지 총 납입액(원)", min_value=0, step=1_000_000,
-                               value=int(ISA저장.get("총납입액", 0)), key="ISA_총납입")
-        ISA올해납입 = i4.number_input("올해 납입액(원)", min_value=0, step=1_000_000,
-                                value=int(ISA저장.get("올해납입액", 0)), key="ISA_올해납입")
-
         ISA제도 = st.radio("적용 제도", list(PF.ISA_제도), horizontal=True,
                         index=list(PF.ISA_제도).index(ISA저장.get("제도", "현행"))
                         if ISA저장.get("제도") in PF.ISA_제도 else 0,
@@ -916,10 +916,105 @@ with 탭진단:
             help="ISA 는 계좌 안의 손익을 통산한 뒤 과세합니다. "
                  "이자·배당까지 포함한 순이익을 넣으세요.")
 
+    # ======================================================================
+    # 납입 이력 — 총·올해 납입액을 여기서 자동으로 뽑습니다
+    # ======================================================================
+    #  ※ '올해 납입액' 을 숫자 한 칸으로 받으면 해가 바뀌어도 그 값이 그대로
+    #    남아서 연 한도 여력이 1년 내내 틀립니다. 날짜와 금액을 줄로 남기면
+    #    올해분이 저절로 0 부터 다시 셉니다.
+    연한도 = PF.ISA_제도.get(ISA제도, PF.ISA_제도["현행"])["연납입한도"]
+
+    if "자산_ISA이력원본" not in st.session_state:
+        st.session_state["자산_ISA이력원본"] = [
+            dict(r) for r in (ISA저장.get("납입이력") or [])]
+    st.session_state.setdefault("자산_ISA이력버전", 0)
+
+    with st.expander(f"💵 납입 이력 ({len(st.session_state['자산_ISA이력원본'])}줄)",
+                     expanded=False):
+        st.caption("입금한 날짜와 금액을 남기면 **총 납입액과 올해 납입액을 "
+                   "자동으로 계산**합니다. 해가 바뀌면 올해분이 저절로 0 부터 "
+                   "다시 셉니다. 비워두면 아래에서 직접 넣을 수 있습니다.")
+
+        이력df = st.data_editor(
+            표만들기(st.session_state["자산_ISA이력원본"],
+                  {"날짜": "date", "금액": "number", "메모": "text"}),
+            num_rows="dynamic", width="stretch",
+            key=f"ISA_이력_{st.session_state['자산_ISA이력버전']}",
+            column_config={
+                "날짜": st.column_config.DateColumn(
+                    "납입일", format="YYYY-MM-DD",
+                    min_value=date(2016, 1, 1), max_value=date(2100, 12, 31)),
+                "금액": st.column_config.NumberColumn(
+                    "납입액(원)", min_value=0, step=1_000_000, format="localized",
+                    help="중도 인출은 넣지 마세요. 인출해도 납입 한도는 "
+                         "복구되지 않습니다."),
+                "메모": st.column_config.TextColumn(width="medium"),
+            })
+
+        납입이력 = []
+        for _, row in 이력df.iterrows():
+            d = 날짜로(row.get("날짜"))
+            금 = 숫자로(row.get("금액"), 0.0)
+            if d is None or 금 <= 0:
+                continue
+            납입이력.append({"날짜": d.isoformat(), "금액": int(금),
+                          "메모": str(row.get("메모") or "")})
+
+        이력요약 = PF.ISA_이력_집계(납입이력, 연한도)
+        for m in 이력요약["경고"]:
+            st.warning(m, icon="⚠️")
+
+        if 이력요약["줄수"]:
+            st.success(
+                f"이력 {이력요약['줄수']}줄 → 총 납입 "
+                f"**{ui.원(이력요약['총납입'])}** · {이력요약['올해']}년 납입 "
+                f"**{ui.원(이력요약['올해납입'])}**", icon="✅")
+            st.dataframe(pd.DataFrame([{
+                "연도": f"{r['연도']}년", "납입액": round(r["납입"]),
+                "연 한도": round(r["한도"]), "잔여": round(r["잔여"]),
+                "소진률(%)": round(r["소진률"], 1),
+            } for r in 이력요약["연도별"]]).style.format(
+                {"납입액": "{:,}", "연 한도": "{:,}", "잔여": "{:,}",
+                 "소진률(%)": "{:.1f}"}),
+                width="stretch", hide_index=True)
+    # ----------------------------------------------------------------------
+
+    올해 = date.today().year
+    if 이력요약["줄수"]:
+        ISA총납입 = 이력요약["총납입"]
+        ISA올해납입 = 이력요약["올해납입"]
+        기준연도 = 올해
+        st.caption(f"납입액은 **납입 이력 {이력요약['줄수']}줄에서 자동 계산**한 "
+                   "값입니다. 직접 넣으시려면 이력을 비우세요.")
+    else:
+        # 이력이 없으면 예전처럼 직접 받습니다. 다만 그 값이 '어느 해' 것인지
+        # 함께 저장해서, 해가 바뀌면 다시 넣으라고 알려 줍니다.
+        기준연도 = int(ISA저장.get("올해납입_기준연도") or 올해)
+        j1, j2 = st.columns(2)
+        ISA총납입 = j1.number_input(
+            "지금까지 총 납입액(원)", min_value=0, step=1_000_000,
+            value=int(ISA저장.get("총납입액", 0)), key="ISA_총납입")
+        ISA올해납입 = j2.number_input(
+            f"{기준연도}년 납입액(원)", min_value=0, step=1_000_000,
+            value=int(ISA저장.get("올해납입액", 0)), key="ISA_올해납입",
+            help="위 '납입 이력' 에 날짜별로 넣으면 이 값은 자동으로 계산됩니다.")
+        if 기준연도 != 올해:
+            st.warning(
+                f"위 납입액은 **{기준연도}년 기준**으로 넣으신 값입니다. "
+                f"해가 바뀌어 지금은 {올해}년이니, {올해}년에 넣은 금액으로 "
+                f"고쳐 주세요. ({기준연도}년 납입분은 '지금까지 총 납입액' 에 "
+                "이미 들어가 있어야 합니다)\n\n"
+                "**납입 이력**에 날짜별로 남기시면 이런 손질이 필요 없습니다.",
+                icon="📅")
+        else:
+            기준연도 = 올해
+
     st.session_state["자산_ISA"] = {
         "가입일": ISA가입일.isoformat(), "유형": ISA유형,
         "총납입액": int(ISA총납입), "올해납입액": int(ISA올해납입),
+        "올해납입_기준연도": int(기준연도),
         "제도": ISA제도, "순이익": int(순이익입력),
+        "납입이력": 납입이력,
     }
 
     ISA = PF.ISA_현황(ISA가입일, ISA총납입, ISA올해납입, 순이익입력,
@@ -932,7 +1027,8 @@ with 탭진단:
          f"한도 {ISA['비과세한도'] / 1e4:,.0f}만 중 {ISA['비과세소진률']:.0f}% 사용"),
         ("ISA 절세액", ui.원(ISA["절세액"]),
          f"일반계좌면 {ISA['일반계좌세금'] / 1e4:,.0f}만 → ISA {ISA['ISA세금'] / 1e4:,.0f}만"),
-        ("올해 납입 여력", ui.원(ISA["연납입잔여"]),
+        (f"{기준연도}년 납입 여력", ui.원(ISA["연납입잔여"]),
+         f"{기준연도}년 {ISA올해납입 / 1e4:,.0f}만 납입 · "
          f"총 여력 {ISA['총납입잔여'] / 1e8:.2f}억"),
     ], 열수=2)
 
@@ -952,7 +1048,7 @@ with 탭진단:
                 icon="💡")
     else:
         st.success(f"의무기간을 채웠고 비과세 한도가 {ISA['비과세잔여'] / 1e4:,.0f}만원 "
-                   "남아 있습니다.", icon="✓")
+                   "남아 있습니다.", icon="✅")
 
     st.caption("※ 중도 인출은 가능하지만 인출한 만큼 납입 한도가 복구되지 않습니다. "
                "ISA 안에서는 해외 주식을 직접 살 수 없고, 국내 상장 해외 ETF 는 됩니다.")
