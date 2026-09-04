@@ -178,7 +178,7 @@ def _세션_유효한가() -> bool:
                       "정책금리_대비", "주담대_영향", "기본값", "기본_만기"],
     "engines.fx": ["환율_가져오기", "평균_계산", "금액표시",
                   "단기_요약", "단기_메시지", "시점_값"],
-    "engines.loan": ["스케줄_생성", "요약"],
+    "engines.loan": ["스케줄_생성", "요약", "진행_현황", "실적_대조"],
     "engines.property_tax": ["calculate", "add_or_update_history"],
     "engines.salary": ["dashboard_records", "연도별_표"],
     "engines.networth": ["백분위", "순자산_계산", "추이_분석", "구간_분석",
