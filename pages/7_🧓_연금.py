@@ -9,7 +9,8 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
+from app_kit import (가까운값, 고른위치,  # noqa: E402
+                     불러온것_적용, 저장_불러오기)
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import pension as PS  # noqa: E402
 
@@ -93,7 +94,7 @@ c1, c2, c3 = st.columns(3)
 생년 = c1.number_input("태어난 해", min_value=1940, max_value=2010, step=1,
                     value=int(설정["생년"]))
 성별 = c2.selectbox("성별", ["남", "여"],
-                  index=["남", "여"].index(설정.get("성별", "남")))
+                  index=고른위치(["남", "여"], 설정.get("성별", "남")))
 은퇴나이 = c3.number_input("은퇴 나이", min_value=50, max_value=75, step=1,
                       value=int(설정["은퇴나이"]))
 현재나이 = 올해 - int(생년)
@@ -106,8 +107,11 @@ with st.expander("💰 굴리는 가정 (여기가 결과를 좌우합니다)", 
                          "3%면 2.7억, 7%면 5.8억입니다.")
     물가 = g2.slider("물가상승률(%)", 0.0, 5.0, float(설정["물가"]), 0.5,
                    help="20년 뒤 월 300만원은 물가 2%면 지금 202만원입니다.")
-    수령년수 = st.select_slider("확정기간형 수령 기간(년)", [10, 15, 20, 25, 30],
-                          value=int(설정["수령년수"]))
+    # 저장값이 목록에 없으면(예전 버전은 아무 숫자나 받았습니다) 가장 가까운
+    # 값으로 맞춥니다. 그대로 넣으면 ValueError 로 페이지가 죽습니다.
+    _수령목록 = [10, 15, 20, 25, 30]
+    수령년수 = st.select_slider("확정기간형 수령 기간(년)", _수령목록,
+                          value=가까운값(_수령목록, 설정.get("수령년수"), 20))
 
 st.divider()
 
@@ -130,9 +134,11 @@ with n1:
     국민_소득 = st.number_input("가입기간 평균 소득월액(B값, 원)", min_value=0,
                           step=100_000, value=int(설정["국민_평균소득"]),
                           help="지금 소득이 아니라 가입기간 전체의 평균입니다.")
-    수급나이 = st.selectbox("수급 개시 나이", [60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70],
-                       index=[60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70].index(
-                           int(설정.get("수급개시나이", 65))))
+    _수급목록 = list(range(60, 71))
+    수급나이 = st.selectbox(
+        "수급 개시 나이", _수급목록,
+        index=고른위치(_수급목록, 가까운값(_수급목록, 설정.get("수급개시나이"), 65),
+                   기본=5))
 
 with n2:
     st.markdown("**🏢 퇴직연금 (DC·IRP)**")

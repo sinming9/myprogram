@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import importer  # noqa: E402
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
+from app_kit import 고른위치, 불러온것_적용, 저장_불러오기  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines.property_tax import (AGE_OPTIONS, HOLD_OPTIONS, PropertyRow,  # noqa: E402
                                   add_or_update_history, calculate,
@@ -145,10 +145,10 @@ house_count = c2.number_input("종부세 기준 주택 수", min_value=1, max_va
 
 c3, c4 = st.columns(2)
 age_key = c3.selectbox("고령자 세액공제", list(AGE_OPTIONS),
-                       index=list(AGE_OPTIONS).index(자료["age_key"]),
+                       index=고른위치(AGE_OPTIONS, 자료["age_key"]),
                        disabled=not is_one)
 hold_key = c4.selectbox("장기보유 세액공제", list(HOLD_OPTIONS),
-                        index=list(HOLD_OPTIONS).index(자료["hold_key"]),
+                        index=고른위치(HOLD_OPTIONS, 자료["hold_key"]),
                         disabled=not is_one)
 if not is_one:
     st.caption("고령자·장기보유 세액공제는 1세대 1주택자만 적용됩니다.")

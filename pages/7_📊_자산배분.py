@@ -733,7 +733,7 @@ with 탭조정:
         st.divider()
         st.subheader("🛡️ 퇴직연금 위험자산 한도")
         for r in 한도표:
-            st.progress(min(r["위험비중"] / 100, 1.0),
+            st.progress(min(max(r["위험비중"] / 100, 0.0), 1.0),
                         text=f"{r['계좌']} 위험자산 {r['위험비중']:.1f}% "
                              f"(한도 70%)")
             if r["한도초과"]:
@@ -1032,9 +1032,9 @@ with 탭진단:
          f"총 여력 {ISA['총납입잔여'] / 1e8:.2f}억"),
     ], 열수=2)
 
-    st.progress(min(ISA["진행률"] / 100, 1.0),
+    st.progress(min(max(ISA["진행률"] / 100, 0.0), 1.0),
                 text=f"의무기간 {ISA['진행률']:.0f}% 경과")
-    st.progress(min(ISA["비과세소진률"] / 100, 1.0),
+    st.progress(min(max(ISA["비과세소진률"] / 100, 0.0), 1.0),
                 text=f"비과세 한도 {ISA['비과세소진률']:.0f}% 소진")
 
     if not ISA["의무기간_충족"]:

@@ -9,7 +9,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
+from app_kit import 고른위치, 불러온것_적용, 저장_불러오기  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import egg_cycle as EC  # noqa: E402
 from engines import fedwatch as FW  # noqa: E402
@@ -57,7 +57,7 @@ storage.임시서버_안내()
 나라 = st.radio("대상", ["KR", "US"], horizontal=True, key="달걀_나라",
               format_func=lambda c: {"KR": "🇰🇷 한국 (한국은행 기준금리)",
                                      "US": "🇺🇸 미국 (연방기금금리 상단)"}[c],
-              index=["KR", "US"].index(설정.get("country", "KR")))
+              index=고른위치(["KR", "US"], 설정.get("country", "KR")))
 설정["country"] = 나라
 
 api_key = None
@@ -483,7 +483,8 @@ with 탭일정:
         st.markdown("##### 직접 입력")
         d1, d2 = st.columns(2)
         수동방향 = d1.selectbox("예상 방향", ["동결", "인상", "인하"],
-                            index=["동결", "인상", "인하"].index(설정.get("수동방향", "동결")),
+                            index=고른위치(["동결", "인상", "인하"],
+                                       설정.get("수동방향", "동결")),
                             key="달걀_수동방향")
         수동확률 = d2.slider("그 방향의 확률(%)", 0, 100,
                          int(설정.get("수동확률") or 0), step=5, key="달걀_수동확률")
@@ -578,6 +579,10 @@ with st.expander("⚙️ 사이클 밴드 · 금리 직접 입력"):
             "manual_rate": float(수동값) if 사용수동 else None,
             "추가이력": 새이력,
         })
+        # ★ 표의 원본(설정["추가이력"])이 바뀌었으니 표를 다시 만들어야 합니다.
+        #   안 올리면 편집내역(어느 줄을 지웠는지 등)이 새 원본에 또 적용돼서,
+        #   줄을 지우고 저장할 때마다 그다음 줄이 계속 사라집니다.
+        st.session_state["달걀_표버전"] = st.session_state.get("달걀_표버전", 0) + 1
         성공, 메시지 = storage.저장하기(저장키, 설정)
         st.cache_data.clear()
         (st.success if 성공 else st.error)(메시지)
