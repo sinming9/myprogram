@@ -27,7 +27,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import 날짜로, 불러온것_적용, 숫자로, 저장_불러오기, 표만들기  # noqa: E402
+from app_kit import (날짜로, 범위안, 불러온것_적용, 숫자로, 저장_불러오기, 표만들기)  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import future as FU  # noqa: E402
 
@@ -156,12 +156,12 @@ for _, row in 편집표.iterrows():
 
 c1, c2 = st.columns(2)
 환율 = c1.number_input("적용 환율(원/달러)", min_value=500, max_value=3000,
-                    step=10, value=int(설정.get("환율") or 1390),
+                    step=10, value=int(범위안(설정.get("환율") or 1390, 500, 3000)),
                     help="달러로 넣는 금액을 원화로 바꿀 때 씁니다. "
                          "앞으로의 환율은 알 수 없어 지금 값을 계속 씁니다.")
 현재잔액 = c2.number_input(
     "지금 굴리고 있는 돈(원)", min_value=0, step=1_000_000,
-    value=int(설정.get("현재잔액") or 자동["투자자산"]),
+    value=int(범위안(설정.get("현재잔액") or 자동["투자자산"], 0, None)),
     help="여기서부터 불어납니다. 0 이면 앞으로 넣는 돈만 셉니다.")
 설정["환율"] = int(환율)
 설정["현재잔액"] = int(현재잔액)
@@ -222,11 +222,11 @@ g1, g2 = st.columns(2)
 
 s1, s2, s3 = st.columns(3)
 비관 = s1.number_input("비관 (연 %)", -10.0, 30.0,
-                    float(설정.get("비관", 2.0)), 0.5, format="%.1f")
+                    float(범위안(설정.get("비관", 2.0), -10.0, 30.0)), 0.5, format="%.1f")
 기준 = s2.number_input("기준 (연 %)", -10.0, 30.0,
-                    float(설정.get("기준", 6.0)), 0.5, format="%.1f")
+                    float(범위안(설정.get("기준", 6.0), -10.0, 30.0)), 0.5, format="%.1f")
 낙관 = s3.number_input("낙관 (연 %)", -10.0, 30.0,
-                    float(설정.get("낙관", 10.0)), 0.5, format="%.1f")
+                    float(범위안(설정.get("낙관", 10.0), -10.0, 30.0)), 0.5, format="%.1f")
 설정.update({"비관": float(비관), "기준": float(기준), "낙관": float(낙관)})
 
 수익률들 = {"비관": 비관, "기준": 기준, "낙관": 낙관}
@@ -322,7 +322,7 @@ st.divider()
 ui.섹션("목표까지 얼마나 걸리나", "기준 가정으로 계산합니다.", 라벨="목표")
 
 목표액 = st.number_input("목표 금액(원)", min_value=0, step=100_000_000,
-                     value=int(설정.get("목표액") or 0))
+                     value=int(범위안(설정.get("목표액") or 0, 0, None)))
 설정["목표액"] = int(목표액)
 
 if 목표액 > 0:

@@ -10,7 +10,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import 불러온것_적용, 저장_불러오기  # noqa: E402
+from app_kit import (범위안, 불러온것_적용, 저장_불러오기)  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import capital_gains as CG  # noqa: E402
 
@@ -66,9 +66,9 @@ c1, c2 = st.columns(2)
 취득일 = c1.date_input("취득일 (등기·잔금일)", value=_날짜(설정["취득일"], date(2018, 6, 1)),
                    min_value=date(1970, 1, 1), max_value=date(2100, 12, 31))
 취득가액 = c2.number_input("취득가액(원)", min_value=0, step=10_000_000,
-                      value=int(설정["취득가액"]))
+                      value=int(범위안(설정["취득가액"], 0, None)))
 필요경비 = st.number_input("필요경비(원)", min_value=0, step=1_000_000,
-                      value=int(설정["필요경비"]),
+                      value=int(범위안(설정["필요경비"], 0, None)),
                       help="취득세·중개수수료·법무비용·자본적지출(샷시·확장·바닥 등). "
                            "영수증이 있어야 공제됩니다. 도배·장판 같은 수익적지출은 제외.")
 
@@ -89,15 +89,15 @@ c3, c4 = st.columns(2)
 양도일 = c3.date_input("양도 예정일 (잔금일)", value=_날짜(설정["양도일"], date.today()),
                    min_value=date(1970, 1, 1), max_value=date(2100, 12, 31))
 양도가액 = c4.number_input("예상 양도가액(원)", min_value=0, step=10_000_000,
-                      value=int(설정["양도가액"]))
+                      value=int(범위안(설정["양도가액"], 0, None)))
 
 st.subheader("3. 주택 현황")
 c5, c6 = st.columns(2)
 주택수 = c5.number_input("양도 시점 세대 보유 주택 수", min_value=1, max_value=20, step=1,
-                    value=int(설정["주택수"]),
+                    value=int(범위안(설정["주택수"], 1, 20)),
                     help="조합원입주권·분양권도 주택 수에 포함됩니다.")
 거주개월 = c6.number_input("실제 거주한 개월 수", min_value=0, max_value=600, step=6,
-                     value=int(설정["거주개월"]),
+                     value=int(범위안(설정["거주개월"], 0, 600)),
                      help="전입신고 기준. 1세대1주택 장기보유특별공제 표2(최대 80%)에 필요")
 
 c7, c8 = st.columns(2)

@@ -9,7 +9,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import (가까운값, 고른위치,  # noqa: E402
+from app_kit import (가까운값, 고른위치, 범위안,  # noqa: E402
                      불러온것_적용, 저장_불러오기)
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import pension as PS  # noqa: E402
@@ -92,11 +92,11 @@ def 자동수집():
 # ==========================================================================
 c1, c2, c3 = st.columns(3)
 생년 = c1.number_input("태어난 해", min_value=1940, max_value=2010, step=1,
-                    value=int(설정["생년"]))
+                    value=int(범위안(설정["생년"], 1940, 2010)))
 성별 = c2.selectbox("성별", ["남", "여"],
                   index=고른위치(["남", "여"], 설정.get("성별", "남")))
 은퇴나이 = c3.number_input("은퇴 나이", min_value=50, max_value=75, step=1,
-                      value=int(설정["은퇴나이"]))
+                      value=int(범위안(설정["은퇴나이"], 50, 75)))
 현재나이 = 올해 - int(생년)
 은퇴까지 = max(int(은퇴나이) - 현재나이, 0)
 
@@ -127,12 +127,12 @@ with n1:
     st.markdown("**🏛️ 국민연금**")
     국민_공단 = st.number_input(
         "공단 조회 월 예상액(원)", min_value=0, step=10_000,
-        value=int(설정["국민_공단조회"]),
+        value=int(범위안(설정["국민_공단조회"], 0, None)),
         help="국민연금공단 「내 연금 알아보기」 값. 0 이면 아래 산식으로 계산합니다.")
     국민_시작 = st.number_input("가입 시작 연도", min_value=1988, max_value=올해,
-                          step=1, value=int(설정["국민_가입시작"]))
+                          step=1, value=int(범위안(설정["국민_가입시작"], 1988, 올해)))
     국민_소득 = st.number_input("가입기간 평균 소득월액(B값, 원)", min_value=0,
-                          step=100_000, value=int(설정["국민_평균소득"]),
+                          step=100_000, value=int(범위안(설정["국민_평균소득"], 0, None)),
                           help="지금 소득이 아니라 가입기간 전체의 평균입니다.")
     _수급목록 = list(range(60, 71))
     수급나이 = st.selectbox(
@@ -143,17 +143,17 @@ with n1:
 with n2:
     st.markdown("**🏢 퇴직연금 (DC·IRP)**")
     퇴직_잔액 = st.number_input("현재 잔액(원)", min_value=0, step=1_000_000,
-                          value=int(설정["퇴직_잔액"] or 자동["퇴직"]), key="_퇴직잔액")
+                          value=int(범위안(설정["퇴직_잔액"] or 자동["퇴직"], 0, None)), key="_퇴직잔액")
     퇴직_납입 = st.number_input("연간 납입액(원)", min_value=0, step=1_000_000,
-                          value=int(설정["퇴직_연납입"]
-                                    or (자동["연봉"] / 12 if 자동["연봉"] else 0)),
+                          value=int(범위안(설정["퇴직_연납입"]
+                                    or (자동["연봉"] / 12 if 자동["연봉"] else 0), 0, None)),
                           key="_퇴직납입",
                           help="퇴직연금은 보통 연봉의 1/12 이 매년 쌓입니다.")
     st.markdown("**🏦 연금저축**")
     저축_잔액 = st.number_input("현재 잔액(원)", min_value=0, step=1_000_000,
-                          value=int(설정["저축_잔액"] or 자동["저축"]), key="_저축잔액")
+                          value=int(범위안(설정["저축_잔액"] or 자동["저축"], 0, None)), key="_저축잔액")
     저축_납입 = st.number_input("연간 납입액(원)", min_value=0, step=1_000_000,
-                          value=int(설정["저축_연납입"]), key="_저축납입",
+                          value=int(범위안(설정["저축_연납입"], 0, None)), key="_저축납입",
                           help="세액공제 한도는 연 600만원(IRP 합산 900만원)입니다.")
 
 설정.update({

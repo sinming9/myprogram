@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import importer  # noqa: E402
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import 고른위치, 불러온것_적용, 저장_불러오기  # noqa: E402
+from app_kit import (고른위치, 범위안, 불러온것_적용, 저장_불러오기)  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines.property_tax import (AGE_OPTIONS, HOLD_OPTIONS, PropertyRow,  # noqa: E402
                                   add_or_update_history, calculate,
@@ -140,7 +140,7 @@ c1, c2 = st.columns(2)
 is_one = c1.toggle("1세대 1주택자", value=bool(자료["is_one"]),
                    help="1세대 1주택이면 재산세 특례세율과 종부세 12억 공제, 고령·장기보유 세액공제가 적용됩니다.")
 house_count = c2.number_input("종부세 기준 주택 수", min_value=1, max_value=20, step=1,
-                              value=int(자료["house_count"]),
+                              value=int(범위안(자료["house_count"], 1, 20)),
                               help="3주택 이상이면 종부세 중과세율이 적용됩니다.")
 
 c3, c4 = st.columns(2)

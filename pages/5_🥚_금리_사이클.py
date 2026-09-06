@@ -9,7 +9,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import 고른위치, 불러온것_적용, 저장_불러오기  # noqa: E402
+from app_kit import (고른위치, 범위안, 불러온것_적용, 저장_불러오기)  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import egg_cycle as EC  # noqa: E402
 from engines import fedwatch as FW  # noqa: E402
@@ -529,18 +529,18 @@ with st.expander("⚙️ 사이클 밴드 · 금리 직접 입력"):
                "시장이 예상하는 최종금리를 고점에 넣으면 위치가 더 현실적으로 나옵니다.")
     c1, c2, c3 = st.columns(3)
     저점 = c1.number_input("사이클 저점(%)", min_value=0.0, max_value=25.0, step=0.25,
-                        value=float(설정.get("cycle_low") or 0.0), format="%.2f")
+                        value=float(범위안(설정.get("cycle_low") or 0.0, 0.0, 25.0)), format="%.2f")
     고점 = c2.number_input("사이클 고점(%)", min_value=0.0, max_value=25.0, step=0.25,
-                        value=float(설정.get("cycle_high") or 0.0), format="%.2f")
+                        value=float(범위안(설정.get("cycle_high") or 0.0, 0.0, 25.0)), format="%.2f")
     조회연수 = c3.number_input("자동 산출 기간(년)", min_value=1, max_value=15, step=1,
-                          value=int(설정.get("lookback_years", 3)))
+                          value=int(범위안(설정.get("lookback_years", 3), 1, 15)))
     st.caption("0 으로 두면 '자동'입니다.")
 
     st.markdown("##### 현재 금리 직접 입력")
     사용수동 = st.checkbox("자동 조회 대신 직접 입력한 금리를 쓰기",
                        value=설정.get("manual_rate") is not None)
     수동값 = st.number_input("현재 기준금리(%)", min_value=0.0, max_value=25.0, step=0.25,
-                          value=float(설정.get("manual_rate") or 상태.rate), format="%.2f",
+                          value=float(범위안(설정.get("manual_rate") or 상태.rate, 0.0, 25.0)), format="%.2f",
                           disabled=not 사용수동)
 
     st.markdown("##### 금리 변경 이력 추가")

@@ -9,7 +9,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 import ui  # noqa: E402
-from app_kit import (날짜로, 불러온것_적용, 숫자로,  # noqa: E402
+from app_kit import (날짜로, 범위안, 불러온것_적용, 숫자로,  # noqa: E402
                      저장_불러오기, 표만들기)
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 from engines import diagnosis as DG  # noqa: E402
@@ -818,9 +818,9 @@ with 탭진단:
         나이설정 = st.session_state.get("자산_나이", {}) or {}
         a1, a2 = st.columns(2)
         나이 = a1.number_input("나이", min_value=18, max_value=100, step=1,
-                            value=int(나이설정.get("나이", 40)), key="_나이")
+                            value=int(범위안(나이설정.get("나이", 40), 18, 100)), key="_나이")
         은퇴나이 = a2.number_input("은퇴 예정 나이", min_value=40, max_value=90, step=1,
-                              value=int(나이설정.get("은퇴나이", 65)), key="_은퇴나이")
+                              value=int(범위안(나이설정.get("은퇴나이", 65), 40, 90)), key="_은퇴나이")
         st.session_state["자산_나이"] = {"나이": int(나이), "은퇴나이": int(은퇴나이)}
 
         비중 = DG.위험자산_비중계산(종목들)
@@ -911,7 +911,7 @@ with 탭진단:
 
         순이익입력 = st.number_input(
             "ISA 계좌 순이익(원)", min_value=0, step=100_000,
-            value=int(ISA저장.get("순이익") or max(ISA평가액 - ISA원금, 0)),
+            value=int(범위안(ISA저장.get("순이익") or max(ISA평가액 - ISA원금, 0), 0, None)),
             key="ISA_순이익",
             help="ISA 는 계좌 안의 손익을 통산한 뒤 과세합니다. "
                  "이자·배당까지 포함한 순이익을 넣으세요.")
@@ -993,10 +993,10 @@ with 탭진단:
         j1, j2 = st.columns(2)
         ISA총납입 = j1.number_input(
             "지금까지 총 납입액(원)", min_value=0, step=1_000_000,
-            value=int(ISA저장.get("총납입액", 0)), key="ISA_총납입")
+            value=int(범위안(ISA저장.get("총납입액", 0), 0, None)), key="ISA_총납입")
         ISA올해납입 = j2.number_input(
             f"{기준연도}년 납입액(원)", min_value=0, step=1_000_000,
-            value=int(ISA저장.get("올해납입액", 0)), key="ISA_올해납입",
+            value=int(범위안(ISA저장.get("올해납입액", 0), 0, None)), key="ISA_올해납입",
             help="위 '납입 이력' 에 날짜별로 넣으면 이 값은 자동으로 계산됩니다.")
         if 기준연도 != 올해:
             st.warning(
