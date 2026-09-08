@@ -23,6 +23,7 @@ GitHub 웹페이지에 파일을 끌어다 놓는 방식은 `.gitignore` 를 **�
 """
 
 import os
+import re
 import shutil
 import sys
 
@@ -49,10 +50,19 @@ import sys
 군더더기_파일 = {".DS_Store", "Thumbs.db", "desktop.ini"}
 
 
+# 앱이 내려주는 파일은 전부 `{이름}_{YYYY-MM-DD}.json` 모양입니다.
+#  ★ 이름을 하나씩 적는 방식은 새 페이지를 만들 때마다 빠뜨립니다.
+#    실제로 미래자산·연금설정·호텔감시 가 빠져 있었습니다. 그래서 이름
+#    목록이 아니라 **형태**로 잡습니다. 목록은 예전 파일용으로만 남깁니다.
+_날짜붙은JSON = re.compile(r"_[12]\d{3}-\d{2}-\d{2}\.json$", re.I)
+
+
 def _백업파일인가(이름: str) -> bool:
     """앱이 내려준 백업·설정 파일. 개인 금액이 들어 있어 뺍니다."""
     if not 이름.lower().endswith(".json"):
         return False
+    if _날짜붙은JSON.search(이름):
+        return True
     조각 = ("_백업_", "_설정_", "순자산_", "연봉자료_", "재산세_",
           "대출계산기_", "자산배분_", "양도세_")
     return any(c in 이름 for c in 조각)
@@ -178,6 +188,24 @@ def main():
     print("   4. 맨 아래 초록색 Commit changes 클릭")
     print()
     print(" 자세한 내용은 외부접속_설정_가이드.md [2단계] 를 보세요.")
+
+    # .github 폴더는 끌어놓기로 잘 안 올라갑니다. 브라우저가 점(.)으로
+    # 시작하는 폴더를 숨기거나 빼먹는 경우가 있습니다. 조용히 빠지면
+    # 자동 감시가 안 도는데 이유를 알기 어려워서 따로 알려줍니다.
+    깃허브폴더 = os.path.join(사본_폴더, ".github")
+    if os.path.isdir(깃허브폴더):
+        print()
+        print(" ⚠ .github 폴더 주의")
+        print("   끌어놓기로는 이 폴더가 빠질 수 있습니다 (브라우저가 점으로")
+        print("   시작하는 폴더를 숨기는 탓입니다). 빠지면 자동 감시가 안 돕니다.")
+        print("   확실한 방법 — GitHub 저장소에서")
+        print("     Add file → Create new file →")
+        print("     이름 칸에 `.github/workflows/hotel-watch.yml` 을 직접 입력 →")
+        print("     아래 파일의 내용을 붙여넣기")
+        for 뿌리, _폴더들, 파일들 in os.walk(깃허브폴더):
+            for 이름 in sorted(파일들):
+                상대 = os.path.relpath(os.path.join(뿌리, 이름), 사본_폴더)
+                print(f"       {상대}".replace("\\", "/"))
     return 0
 
 
