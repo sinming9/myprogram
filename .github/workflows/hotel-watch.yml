@@ -9,24 +9,13 @@
 #
 #           RAPIDAPI_KEY       RapidAPI 키                      (필수)
 #           RAPIDAPI_HOST      booking-com15.p.rapidapi.com
+#           TELEGRAM_TOKEN     텔레그램 봇 토큰                  (필수)
+#           TELEGRAM_CHAT_ID   내 chat_id                        (필수)
 #           GIST_TOKEN         gist 권한을 준 개인 토큰(PAT)      (필수)
 #           GIST_ID            자료가 들어 있는 비공개 Gist id    (필수)
 #
-#         알림은 아래 중 쓰실 것만 넣으면 됩니다 (둘 다 넣어도 됩니다).
-#           KAKAO_REST_KEY       카카오 REST API 키
-#           KAKAO_REFRESH_TOKEN  리프레시 토큰 (화면에서 복사)
-#           KAKAO_CLIENT_SECRET  앱에서 켜뒀다면
-#           TELEGRAM_TOKEN       텔레그램 봇 토큰
-#           TELEGRAM_CHAT_ID     내 chat_id
-#
 #         ※ 이름을 GITHUB_GIST_TOKEN 으로 만들 수 없습니다.
 #           GitHub 이 GITHUB_ 접두사를 예약해 두었습니다.
-#
-#         ※ KAKAO_REFRESH_TOKEN 은 **처음 한 번의 씨앗**입니다.
-#           카카오 토큰은 6시간마다 만료되고 리프레시 토큰도 2개월마다
-#           바뀌는데, 워크플로는 자기 Secret 을 고칠 수 없습니다.
-#           그래서 갱신된 토큰은 Gist 에 저장하고 그쪽을 우선으로 씁니다.
-#           한 번 넣은 뒤로는 이 Secret 을 손댈 필요가 없습니다.
 #
 # [확인]  Actions 탭 → 이 워크플로 → Run workflow 로 한 번 직접 돌려보세요.
 #
@@ -84,9 +73,6 @@ jobs:
           RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
-          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
-          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
