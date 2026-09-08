@@ -253,7 +253,7 @@ def 표만들기(자료목록, 열정의):
 # ==========================================================================
 
 def 저장_불러오기(저장키: str, 현재값, 파일접두: str, 적용대기키: str,
-              파일해석=None, 도움말: str = ""):
+              파일해석=None, 도움말: str = "", 내려받기값=None):
     """페이지 맨 아래에 붙이는 공통 저장·불러오기 구역.
 
     저장키     : storage 에 쓸 키 (예: "loan", "property_tax")
@@ -264,6 +264,10 @@ def 저장_불러오기(저장키: str, 현재값, 파일접두: str, 적용대�
                 (위젯이 만들어진 뒤에 값을 바꾸면 Streamlit 이 막습니다)
     파일해석   : 올린 파일을 해석하는 함수. (파일) -> (데이터, 오류메시지)
                 없으면 그냥 JSON 으로 읽습니다.
+    내려받기값 : 파일로 내려줄 때만 쓸 값. 없으면 현재값을 그대로 씁니다.
+                설정 안에 **비밀값(토큰 등)** 이 있을 때, 서버에는 저장하되
+                내려받는 파일에서는 빼기 위해 씁니다. 내려받은 파일은
+                메일·메신저로 옮겨 다니기 쉬워서 비밀값이 새기 쉽습니다.
     """
     import json
     from datetime import date as _date
@@ -277,9 +281,11 @@ def 저장_불러오기(저장키: str, 현재값, 파일접두: str, 적용대�
         성공, 메시지 = storage.저장하기(저장키, 현재값)
         (st.success if 성공 else st.error)(메시지)
 
+    파일에담을것 = 현재값 if 내려받기값 is None else 내려받기값
     c2.download_button(
         "⬇️ 설정 파일 내려받기",
-        data=json.dumps(현재값, ensure_ascii=False, indent=2, default=str),
+        data=json.dumps(파일에담을것, ensure_ascii=False, indent=2,
+                        default=str),
         file_name=f"{파일접두}_{_date.today().isoformat()}.json",
         mime="application/json",
         width="stretch",
