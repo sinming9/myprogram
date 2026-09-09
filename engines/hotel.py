@@ -509,11 +509,19 @@ def _항목_해석(d):
     # accessibilityLabel 은 대개 호텔 하나를 감싸는 바깥 dict(d)에 있고,
     # 가격은 그 안의 property 에 있습니다. 둘 다 봐서 문구를 찾습니다.
     무료취소 = _무료취소_추정(d)
-    if 무료취소 == "모름" and isinstance(d.get("property"), dict):
-        무료취소 = _무료취소_추정(d["property"])
+    prop = d.get("property")
+    if 무료취소 == "모름" and isinstance(prop, dict):
+        무료취소 = _무료취소_추정(prop)
+
+    # hotel_id 는 방 목록(무료취소 확정 조회)을 나중에 부를 때 씁니다.
+    호텔id = d.get("hotel_id")
+    if 호텔id is None and isinstance(prop, dict):
+        호텔id = prop.get("id") or prop.get("hotel_id")
+
     return {"호텔": 이름, "가격": float(가격), "통화": (통화 or 기본_통화).upper(),
             "링크": _링크_찾기(d), "무료취소": 무료취소,
-            "세금포함": 세금계산됨}
+            "세금포함": 세금계산됨,
+            "hotel_id": str(호텔id) if 호텔id is not None else ""}
 
 
 def 호텔목록_해석(자료) -> list:
@@ -648,6 +656,130 @@ def 호텔_검색(행, 키, 호스트=기본_호스트, 통화=기본_통화):
         목록 = 걸러낸
 
     목록.sort(key=lambda h: h["가격"])
+    return 목록, None, 원본
+
+
+# ==========================================================================
+# 방(룸) 목록 — 무료취소를 확실하게 압니다
+# ==========================================================================
+#  ★ 호텔 검색(searchHotels)은 그 호텔에서 가장 싼 요금 **하나만** 대표로
+#    줍니다. 그게 무료취소가 되는 요금인지는 설명 문구를 봐야 짐작할 수
+#    있는데, 문구가 없으면 "모름" 일 뿐이고 — 실제로는 무료취소 안 되는
+#    다른 방이었을 수 있습니다(실제로 이런 사례가 있었습니다).
+#
+#    방 목록 조회(room availability 류 API)는 같은 호텔의 방 타입 × 취소
+#    조건 조합을 전부 따로 주고, 각 조합에 **`refundable` 이라는 확정
+#    필드**가 있습니다. 문구를 읽어 짐작할 필요가 없습니다.
+
+def 방목록_해석(자료) -> list:
+    """방 목록 조회 응답에서 방 옵션들을 뽑아냅니다.
+
+    돌려주는 것: [{"이름", "가격"(세금 포함 최종가), "통화",
+                 "무료취소"("가능"/"불가", 확정값), "블록id"}, …]
+
+    "available" 키 아래 목록을 봅니다. 각 항목의 refundable(0/1)을
+    그대로 씁니다 — 문구를 읽어 짐작하지 않습니다.
+    """
+    가능 = 자료.get("available") if isinstance(자료, dict) else None
+    if not isinstance(가능, list):
+        return []
+
+    결과 = []
+    for 항목 in 가능:
+        if not isinstance(항목, dict):
+            continue
+        pb = 항목.get("product_price_breakdown")
+        if not isinstance(pb, dict):
+            continue
+
+        총액 = _금액_읽기(pb.get("all_inclusive_amount"))
+        통화 = _통화_찾기(pb.get("all_inclusive_amount"))
+        if 총액 is None:
+            # all_inclusive_amount 가 없으면 방값+세금을 직접 더합니다
+            기본 = _금액_읽기(pb.get("gross_amount"))
+            if 기본 is None:
+                continue
+            세금 = _금액_읽기(pb.get("excluded_amount"))
+            총액 = 기본 + (세금 or 0)
+            통화 = 통화 or _통화_찾기(pb.get("gross_amount"))
+
+        이름 = str(항목.get("name") or 항목.get("room_name") or "").strip()
+        if not 이름:
+            continue
+
+        refundable = 항목.get("refundable")
+        if refundable is None:
+            # paymentterms.cancellation.type 으로 대신 판단합니다
+            종류 = ((항목.get("paymentterms") or {}).get("cancellation")
+                  or {}).get("type", "")
+            if 종류 == "free_cancellation":
+                refundable = 1
+            elif 종류 == "non_refundable":
+                refundable = 0
+
+        결과.append({
+            "이름": 이름,
+            "가격": float(총액),
+            "통화": (통화 or 기본_통화).upper(),
+            "무료취소": ("가능" if refundable else
+                      ("불가" if refundable == 0 else "모름")),
+            "블록id": str(항목.get("block_id") or ""),
+        })
+    return 결과
+
+
+def 방_최저가(목록, 무료취소만: bool = False):
+    """(가격, 이름, 통화, 무료취소). 방목록_해석() 결과에서 최저가를 고릅니다.
+
+    무료취소만=True 면 "가능" 인 것만 보고 고릅니다. 그중에 없으면
+    (0.0, '', '', '모름') 을 돌려줍니다.
+    """
+    쓸것 = ([r for r in 목록 if r.get("무료취소") == "가능"]
+          if 무료취소만 else 목록)
+    if not 쓸것:
+        return 0.0, "", "", "모름"
+    첫 = min(쓸것, key=lambda r: r["가격"])
+    return 첫["가격"], 첫["이름"], 첫["통화"], 첫["무료취소"]
+
+
+def 방목록_조회(hotel_id, 체크인, 체크아웃, 키, 호스트=기본_호스트,
+           통화=기본_통화, 아이나이=None):
+    """(목록, 오류, 원본). "Get Room List With Availability" 엔드포인트를 씁니다.
+
+    호텔 하나를 콕 집어(hotel_id) 그 호텔의 방 타입 × 취소조건 조합을
+    전부 받아옵니다. 방목록_해석() 으로 정리해 돌려줍니다.
+    """
+    if not hotel_id:
+        return [], "hotel_id 가 없습니다.", None
+    들 = _날짜(체크인)
+    나 = _날짜(체크아웃)
+    if not 들 or not 나:
+        return [], "체크인/체크아웃 날짜가 없습니다.", None
+
+    매개 = {
+        "hotel_id": str(hotel_id),
+        "arrival_date": 들.isoformat(),
+        "departure_date": 나.isoformat(),
+        "currency_code": (통화 or 기본_통화).upper(),
+        "languagecode": "ko",
+    }
+    아이들 = 아이나이_읽기(아이나이) if 아이나이 else []
+    if 아이들:
+        매개["children_age"] = ",".join(str(n) for n in 아이들)
+
+    try:
+        원본 = _GET("/api/v1/hotels/getRoomListWithAvailability",
+                  매개, 키, 호스트)
+    except Exception as e:                                   # noqa: BLE001
+        return [], 오류설명(e), None
+
+    목록 = 방목록_해석(원본)
+    if not 목록:
+        쪽지 = ""
+        if isinstance(원본, dict):
+            쪽지 = str(원본.get("message") or 원본.get("_원문") or "")[:200]
+        return [], ("방 목록을 찾지 못했습니다. 응답 구조가 바뀌었을 수 "
+                    "있습니다. " + 쪽지).strip(), 원본
     return 목록, None, 원본
 
 
@@ -1010,17 +1142,59 @@ def 한줄_확인(행, 상태, 이력, 키, 호스트=기본_호스트, 통화=�
         답["오류"] = 오류
         return 답
 
-    쓸목록 = 목록
     if 정리.get("무료취소만"):
-        쓸목록 = [h for h in 목록 if h.get("무료취소") == "가능"]
-        if not 쓸목록:
-            답["목록"] = 목록
-            답["오류"] = (f"무료취소 가능한 곳을 찾지 못했습니다 "
-                        f"(전체 {len(목록)}곳 중 0곳). '무료취소만' 을 "
-                        "끄면 전체에서 최저가를 볼 수 있습니다.")
-            return 답
+        # ★ 호텔 검색 결과의 accessibilityLabel 문구만으로는 "모름" 이
+        #   흔합니다(그 요금 자체가 무료취소 옵션이 아닐 수 있어서 문구가
+        #   아예 없는 경우). 그래서 **호텔을 하나로 특정한 경우에 한해**
+        #   방 목록(Get Room List With Availability)을 따로 불러 확정
+        #   필드(refundable)로 판정합니다.
+        #
+        #   호텔을 특정 안 한 도시 전체 감시라면 이 조회를 하지 않습니다
+        #   — 목록[0]은 "그 도시에서 가장 싼 호텔" 하나일 뿐이라, 그
+        #   호텔의 방만 확인하면 실제로는 다른(더 싼) 호텔에 무료취소
+        #   옵션이 있어도 놓칩니다. 도시 전체일 땐 문구로 짐작하는
+        #   예전 방식이 더 넓게 봅니다.
+        대표 = 목록[0] if 목록 else None
+        hotel_id = (대표 or {}).get("hotel_id") if 정리.get("호텔") else None
+        방목록, 방오류 = [], None
+        if hotel_id:
+            방목록, 방오류, 방원본 = 방목록_조회(
+                hotel_id, 정리["체크인"], 정리["체크아웃"], 키, 호스트,
+                통화, 정리.get("아이나이"))
 
-    값, 호텔, 화폐, 무료취소, 세금포함 = 최저가(쓸목록)
+        if 방목록:
+            값, 호텔, 화폐, 무료취소 = 방_최저가(방목록, 무료취소만=True)
+            세금포함 = True                # all_inclusive_amount 는 항상 세금 포함
+            쓸목록 = 방목록
+            답["원본"] = 방원본             # 방 목록 원본이 더 쓸모 있습니다
+            if not 호텔:
+                답["목록"] = 방목록
+                답["오류"] = (f"무료취소 가능한 방을 찾지 못했습니다 "
+                            f"(방 {len(방목록)}개 확인, 확정 조회). "
+                            "'무료취소만' 을 끄면 전체에서 최저가를 볼 수 "
+                            "있습니다.")
+                return 답
+        else:
+            # 확정 조회를 못 했으면(호텔 미지정 또는 조회 실패) 문구로
+            # 짐작한 결과로 대신합니다.
+            쓸목록 = [h for h in 목록 if h.get("무료취소") == "가능"]
+            if not 쓸목록:
+                답["목록"] = 목록
+                안내 = (f"무료취소 가능한 곳을 찾지 못했습니다 "
+                       f"(전체 {len(목록)}곳 중 0곳).")
+                if not hotel_id:
+                    안내 += (" '호텔' 칸에 특정 호텔을 적으면 방 단위로 "
+                           "정확하게 확인할 수 있습니다.")
+                elif 방오류:
+                    안내 += f" (정밀 조회 실패: {방오류})"
+                안내 += " '무료취소만' 을 끄면 전체에서 최저가를 볼 수 있습니다."
+                답["오류"] = 안내
+                return 답
+            값, 호텔, 화폐, 무료취소, 세금포함 = 최저가(쓸목록)
+    else:
+        쓸목록 = 목록
+        값, 호텔, 화폐, 무료취소, 세금포함 = 최저가(쓸목록)
+
     답.update({"목록": 쓸목록, "최저가": 값, "호텔": 호텔, "통화": 화폐,
               "무료취소": 무료취소, "세금포함": 세금포함})
 

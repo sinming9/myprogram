@@ -395,6 +395,88 @@ def 금액표시(값, 단위="원") -> str:
     return f"{v:,.{자릿수}f}{단위}"
 
 
+# ---------------------------------------------------------------------------
+# 텔레그램 요약 — 매일 자동 발송 / 환전 페이지 버튼에서 함께 씁니다
+# ---------------------------------------------------------------------------
+#  ★ 이 아래는 streamlit 을 쓰지 않습니다. GitHub Actions 스크립트에서도
+#    그대로 가져다 쓰기 때문입니다. (호텔 가격 알림과 같은 이유)
+
+_평균_표시순서 = ["1개월 평균", "3개월 평균", "6개월 평균",
+              "1년 평균", "2년 평균", "3년 평균"]
+
+
+def 텔레그램_통화요약(이름: str, currency: dict, data, 평균: dict,
+                신뢰: dict, 단기: list) -> str:
+    """통화 하나의 상태를 텔레그램용 몇 줄로 정리합니다."""
+    현재가 = float(data["Close"].iloc[-1])
+    최신일 = data.index.max()
+    단기표 = {r["라벨"]: r for r in 단기}
+
+    줄 = [f"💱 <b>{이름}</b>",
+        f"　{금액표시(현재가, currency['unit'])} "
+        f"({currency['quote']} 기준, {최신일:%m/%d} 종가)"]
+
+    조각 = []
+    for 라벨, 짧은 in (("1일 전", "어제"), ("1주일 전", "지난주")):
+        r = 단기표.get(라벨)
+        if not r or not r.get("신뢰"):
+            continue
+        v = r["변동률"]
+        화살 = "▲" if v > 0.05 else ("▼" if v < -0.05 else "―")
+        조각.append(f"{짧은} 대비 {화살}{abs(v):.2f}%")
+    if 조각:
+        줄.append("　" + " · ".join(조각))
+
+    평균줄 = []
+    for 라벨 in _평균_표시순서:
+        if not 신뢰.get(라벨):
+            continue
+        값 = 평균.get(라벨)
+        if 값 != 값 or not 값:                     # NaN 이거나 0
+            continue
+        차이율 = (현재가 - 값) / 값 * 100
+        화살 = "▲" if 차이율 > 0.05 else ("▼" if 차이율 < -0.05 else "―")
+        줄이름 = 라벨.replace(" 평균", "")
+        평균줄.append(f"{줄이름} {화살}{abs(차이율):.1f}%")
+    if 평균줄:
+        줄.append("　평균 대비: " + " / ".join(평균줄))
+
+    return "\n".join(줄)
+
+
+def 텔레그램_전체요약(통화목록=None, years: int = 3) -> tuple:
+    """(본문, 실패목록). 실패목록 = [(통화이름, 오류문장), …]
+
+    통화목록 을 안 주면 CURRENCIES 의 전체 통화를 다 봅니다.
+    하나가 실패해도 나머지는 계속 진행하고, 실패한 것만 맨 아래
+    한 줄로 모아 알려줍니다 — 환율 하나 못 가져왔다고 전체를
+    조용히 안 보내면 그게 더 나쁩니다.
+    """
+    이름목록 = list(통화목록) if 통화목록 else list(CURRENCIES)
+    줄 = [f"💱 <b>오늘의 환율</b> ({datetime.today():%Y-%m-%d})"]
+    실패 = []
+    for 이름 in 이름목록:
+        cur = CURRENCIES.get(이름)
+        if not cur:
+            실패.append((이름, "모르는 통화입니다"))
+            continue
+        try:
+            data, _출처, _기록 = 환율_가져오기(cur, years=years)
+            평균, 신뢰 = 평균_계산(data)
+            단기 = 단기_요약(data)
+        except Exception as e:                               # noqa: BLE001
+            실패.append((이름, str(e)))
+            continue
+        줄.append("")
+        줄.append(텔레그램_통화요약(이름, cur, data, 평균, 신뢰, 단기))
+
+    if 실패:
+        줄.append("")
+        줄.append("⚠️ 못 가져온 통화: " + ", ".join(n for n, _e in 실패))
+
+    return "\n".join(줄), 실패
+
+
 def 타이밍_메시지(저렴한_구간수: int) -> tuple:
     if 저렴한_구간수 >= 4:
         return "success", "과거 평균 대비 낮은 편이에요. 환전하기 나쁘지 않은 시점일 수 있어요."
