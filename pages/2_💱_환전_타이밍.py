@@ -300,3 +300,58 @@ if len(기록) > 1:
             st.text(("  ✓ " if 줄.endswith("성공") else "  · ") + 줄)
         st.caption("첫 경로가 막히면 달러를 경유해 계산합니다. "
                    "예: 위안당 원화 = (달러당 원화) ÷ (달러당 위안)")
+
+
+# ==========================================================================
+# 6. 텔레그램으로 보내기
+# ==========================================================================
+#  ★ 호텔 가격 알림과 같은 secrets(telegram_token/telegram_chat_id)를
+#    그대로 씁니다. 새로 설정할 게 없습니다.
+st.divider()
+ui.섹션("텔레그램으로 받아보기",
+      "5개 통화(달러·엔·유로·위안·싱가포르 달러)를 어제·지난주, "
+      "그리고 1개월~3년 평균과 비교해 한 번에 보냅니다.", 라벨="자동화")
+
+
+def _열쇠(이름):
+    try:
+        값 = st.secrets[이름]
+        if 값 is not None and str(값).strip():
+            return str(값).strip()
+    except Exception:                                        # noqa: BLE001
+        pass
+    return (os.environ.get(이름.upper(), "") or "").strip()
+
+
+텔레토큰 = _열쇠("telegram_token")
+텔레방 = _열쇠("telegram_chat_id")
+텔레준비 = bool(텔레토큰 and 텔레방)
+
+if not 텔레준비:
+    st.info("텔레그램 설정이 없습니다. 🏨 호텔 가격 알림 페이지의 '처음 설정' "
+            "안내를 따라 `telegram_token` / `telegram_chat_id` 를 secrets 에 "
+            "넣으면 여기서도 그대로 쓸 수 있습니다.", icon="🔑")
+else:
+    with st.expander("⏰ 매일 자동으로 받기", expanded=False):
+        st.markdown(
+            "GitHub Actions 가 매일 정해진 시간에 대신 보내줍니다. "
+            "이미 호텔 가격 알림용 Secrets 가 있다면 **새로 설정할 게 "
+            "없습니다** — `.github/workflows/fx-daily.yml` 파일만 저장소에 "
+            "올리면 됩니다.\n\n"
+            "Actions 탭 → `환율 매일 요약` → **Run workflow** 로 한 번 "
+            "직접 돌려서 확인해 보세요.\n\n"
+            "보내는 시각을 바꾸려면 그 파일 안의 cron 줄을 고치세요 "
+            "(시간은 UTC 기준이라 한국 시간에서 9시간을 뺀 값입니다).")
+
+    if st.button("📨 지금 텔레그램으로 보내기", width="stretch",
+                 key="환율_텔레_보내기"):
+        from engines import hotel as _HT
+        # ★ 텔레그램 전송 함수는 engines/hotel.py 에 있습니다. 호텔에만
+        #   쓰는 내용이 아니라 일반적인 HTTP 요청이라서 그대로 가져다 씁니다.
+        with st.spinner("5개 통화를 확인하는 중이에요..."):
+            본문, 실패목록 = FX.텔레그램_전체요약()
+        좋음, 말 = _HT.텔레그램_보내기(텔레토큰, 텔레방, 본문)
+        (st.success if 좋음 else st.error)(말)
+        if 실패목록:
+            st.caption("못 가져온 통화: "
+                       + ", ".join(n for n, _e in 실패목록))
