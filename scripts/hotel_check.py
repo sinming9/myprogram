@@ -18,6 +18,8 @@ Gist 를 거치기 때문에 앱 화면과 자동 확인이 **같은 자료**를
 --------------------------------------------------------------------------
   RAPIDAPI_KEY        RapidAPI 키              (필수)
   RAPIDAPI_HOST       API 호스트                (없으면 기본값)
+  AGODA_KEY           아고다용 RapidAPI 키      (없으면 RAPIDAPI_KEY 재사용)
+  AGODA_HOST          아고다 API 호스트         (없으면 기본값)
   GIST_TOKEN          gist 권한 토큰            (필수)
   GIST_ID             자료가 든 Gist id         (필수)
 
@@ -50,6 +52,7 @@ from datetime import datetime
 뿌리 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, 뿌리)
 
+from engines import agoda as AG  # noqa: E402
 from engines import hotel as HT  # noqa: E402
 
 저장파일 = "hotel.json"          # storage.파일이름("hotel") 과 같아야 합니다
@@ -148,6 +151,8 @@ def 실행() -> int:
 
     RAPID키 = 환경("RAPIDAPI_KEY")
     호스트 = 환경("RAPIDAPI_HOST", HT.기본_호스트)
+    아고다키 = 환경("AGODA_KEY", RAPID키)
+    아고다호스트 = 환경("AGODA_HOST", AG.기본_호스트)
     # 예전 이름(GITHUB_GIST_TOKEN)도 받아 줍니다. Actions Secret 으로는
     # 만들 수 없는 이름이지만, 내 PC 에서 시험할 때 쓸 수 있습니다.
     깃토큰 = 환경("GIST_TOKEN") or 환경("GITHUB_GIST_TOKEN")
@@ -206,7 +211,8 @@ def 실행() -> int:
 
     보낼것, 실패수, 성공수 = [], 0, 0
     for 정리 in 할것:
-        답 = HT.한줄_확인(정리, 상태, 이력, RAPID키, 호스트, 통화)
+        답 = HT.한줄_확인(정리, 상태, 이력, RAPID키, 호스트, 통화,
+                       아고다키, 아고다호스트)
         이름 = 정리["이름"]
         if 답["오류"]:
             실패수 += 1
@@ -220,8 +226,9 @@ def 실행() -> int:
         꼬리 = ""
         if 요약.get("최저"):
             꼬리 = f" (최저 {요약['최저']:,.0f})"
+        사이트꼬리 = f" [{답['사이트']}]" if 답.get("사이트") else ""
         알림글(f"   o {이름}: {답['최저가']:,.0f}원{꼬리}"
-              f" — {답['호텔'][:40]}")
+              f" — {답['호텔'][:40]}{사이트꼬리}")
         if 판정.get("알림"):
             보낼것.append((정리, 답))
             알림글(f"     -> 알림 조건 충족: {'; '.join(판정['이유들'])}")
@@ -248,7 +255,8 @@ def 실행() -> int:
             수, 결과들, _새것 = HT.알림_보내기(
                 채널, HT.알림_문장(정리, 답["최저가"], 답["판정"], 답["요약"],
                               답.get("무료취소", "모름"),
-                              답.get("세금포함", False)))
+                              답.get("세금포함", False),
+                              답.get("사이트", "")))
 
             for 채널이름, 좋음, 말 in 결과들:
                 알림글(f"     {'o' if 좋음 else 'x'} {채널이름}"
