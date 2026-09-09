@@ -214,7 +214,10 @@ def 행_정리(행) -> dict:
         "이름": str(행.get("이름") or "").strip(),
         "도시": str(행.get("도시") or "").strip(),
         "dest_id": str(행.get("dest_id") or "").strip(),
-        "종류": (str(행.get("종류") or "").strip().upper() or "CITY"),
+        # ★ 대소문자를 바꾸지 않고 그대로 둡니다. API 가 "hotel" 처럼
+        #   소문자로 돌려준 값을 대문자로 바꿔 보내면, 대소문자를
+        #   구분하는 API 에서는 dest_id 가 맞아도 거부당합니다.
+        "종류": (str(행.get("종류") or "").strip() or "CITY"),
         "호텔": str(행.get("호텔") or "").strip(),
         "체크인": 들어감,
         "체크아웃": 나옴,
@@ -481,8 +484,12 @@ def 도시_찾기(질의, 키, 호스트=기본_호스트):
             "이름": str(d.get("name") or d.get("city_name") or "").strip(),
             "라벨": str(d.get("label") or d.get("name") or "").strip(),
             "dest_id": str(아이디),
+            # ★ 대문자로 바꾸면 안 됩니다. 실제 API 는 "hotel" 처럼
+            #   소문자로 돌려주는데, 대소문자를 구분하는 API 라면 대문자로
+            #   바꿔 보내는 순간 dest_id 가 맞아도 거부당합니다. API 가
+            #   돌려준 값을 그대로 씁니다.
             "종류": str(d.get("search_type") or d.get("dest_type")
-                     or "CITY").upper(),
+                     or "CITY").strip(),
             "나라": str(d.get("country") or "").strip(),
             "호텔수": _정수(d.get("nr_hotels") or d.get("hotels"), 0),
         })
