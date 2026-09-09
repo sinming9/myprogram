@@ -85,8 +85,13 @@ def 도시_찾기(질의, 키, 호스트=기본_호스트):
     except Exception as e:                                   # noqa: BLE001
         return [], 오류설명(e)
 
-    자료 = ((결과.get("data") or {}) if isinstance(결과, dict) else {})
-    장소들 = 자료.get("places") if isinstance(자료, dict) else None
+    # ★ 이 엔드포인트는 응답을 {"data": {...}} 로 감싸지 않고 최상위에
+    #   바로 "places" 를 줍니다(다른 아고다 엔드포인트들과 다릅니다).
+    #   혹시 나중에 감싸는 형태로 바뀌어도 대비해 data.places 도 봅니다.
+    장소들 = 결과.get("places") if isinstance(결과, dict) else None
+    if not isinstance(장소들, list):
+        자료 = (결과.get("data") or {}) if isinstance(결과, dict) else {}
+        장소들 = 자료.get("places") if isinstance(자료, dict) else None
     if not isinstance(장소들, list):
         return [], "찾은 결과가 없습니다. 영어 이름으로 넣어 보세요 (예: Singapore)."
 
@@ -98,13 +103,16 @@ def 도시_찾기(질의, 키, 호스트=기본_호스트):
         typeId = d.get("typeId")
         if 아이디 in (None, "") or typeId in (None, ""):
             continue
+        나라 = d.get("country")
+        나라이름 = (나라.get("name") if isinstance(나라, dict)
+                else str(나라 or "")).strip()
         나온것.append({
             "이름": str(d.get("name") or "").strip(),
             "라벨": str(d.get("name") or "").strip(),
             "place_id": str(아이디),
             "typeId": str(typeId),
             "typeName": str(d.get("typeName") or "").strip(),
-            "나라": str(d.get("country") or d.get("countryName") or "").strip(),
+            "나라": 나라이름,
         })
     if not 나온것:
         return [], "찾은 결과가 없습니다. 영어 이름으로 넣어 보세요 (예: Singapore)."
