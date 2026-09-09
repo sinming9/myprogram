@@ -1,0 +1,64 @@
+# ==========================================================================
+# 환율 매일 요약
+# ==========================================================================
+# 매일 정해진 시간에 5개 통화의 어제·지난주 대비, 1개월~3년 평균 대비를
+# 텔레그램으로 보냅니다.
+#
+# [준비]  저장소 → Settings → Secrets and variables → Actions 에
+#         아래 2개가 이미 있으면 그대로 씁니다 (호텔 가격 알림과 같은 값).
+#         없다면 새로 추가하세요.
+#
+#           TELEGRAM_TOKEN      텔레그램 봇 토큰
+#           TELEGRAM_CHAT_ID    내 chat_id
+#
+#         RapidAPI 키나 Gist 설정은 필요 없습니다. 환율은 공개 데이터라서
+#         매번 새로 계산하면 되고, 저장해 둘 상태도 없습니다.
+#
+# [확인]  Actions 탭 → 이 워크플로 → Run workflow 로 한 번 직접 돌려보세요.
+#
+# [시간 바꾸기]  아래 cron 을 고칩니다. **시간은 UTC 입니다** (한국시간 -9h).
+#           "0 23 * * *"    한국시간 매일 08:00  ← 지금 설정
+#           "0 0 * * *"     한국시간 매일 09:00
+#           "30 21 * * 1-5" 한국시간 평일 06:30
+# ==========================================================================
+
+name: 환율 매일 요약
+
+on:
+  schedule:
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "계산만 하고 보내지 않음"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 저장소 받기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 패키지 설치
+        # engines/fx.py 는 FinanceDataReader·pandas 를 씁니다.
+        # (호텔 알림과 달리 이번엔 설치가 필요합니다)
+        run: pip install -q pandas FinanceDataReader
+
+      - name: 환율 요약 발송
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python scripts/fx_check.py
