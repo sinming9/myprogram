@@ -36,6 +36,7 @@ import ui  # noqa: E402
 from app_kit import (고른위치, 날짜로, 불러온것_적용, 숫자로,
                      저장_불러오기, 표만들기)  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
+from engines import agoda as AG  # noqa: E402
 from engines import hotel as HT  # noqa: E402
 
 require_login(page_title="호텔 가격 알림", page_icon="🏨", layout="centered")
@@ -101,6 +102,7 @@ if "호텔_설정" not in st.session_state:
 st.session_state.setdefault("호텔_표버전", 0)
 st.session_state.setdefault("호텔_결과", {})
 st.session_state.setdefault("호텔_도시결과", [])
+st.session_state.setdefault("호텔_아고다결과", [])
 
 
 def _표원본_바꾸기(행들):
@@ -140,6 +142,12 @@ def _열쇠(이름, 기본=""):
 
 RAPID키 = _열쇠("rapidapi_key")
 호스트 = _열쇠("rapidapi_host", 설정.get("호스트") or HT.기본_호스트)
+# ★ 아고다 키는 별도 값(agoda_key)이 있으면 그걸 쓰고, 없으면 부킹닷컴과
+#   같은 RapidAPI 키를 재사용합니다 — RapidAPI 키는 보통 계정 하나에 API
+#   여러 개를 구독하는 방식이라, 아고다도 같은 키로 구독했다면 그대로
+#   동작합니다. 호스트만 API 마다 다릅니다.
+아고다키 = _열쇠("agoda_key", RAPID키)
+아고다호스트 = _열쇠("agoda_host", AG.기본_호스트)
 텔레토큰 = _열쇠("telegram_token")
 텔레방 = _열쇠("telegram_chat_id")
 손님 = storage.손님인가()
@@ -245,7 +253,7 @@ ui.섹션("무엇을 지켜볼까",
     #   내부 값이라 사람이 직접 적을 일이 없고, 잘못 적으면 조회가
     #   깨집니다. column_order 에서 빼면 표에는 안 보이지만
     #   data_editor 가 돌려주는 값에는 그대로 남습니다.
-    column_order=[c for c in HT.감시열 if c != "종류"],
+    column_order=[c for c in HT.감시열 if c not in ("종류", "아고다_id")],
     column_config={
         "사용": st.column_config.CheckboxColumn(
             "쓰기", width="small", help="끄면 자동 확인에서 뺍니다"),
@@ -309,6 +317,7 @@ for _, row in 편집표.iterrows():
         #   주는데 대문자로 바꿔 보내면 대소문자를 구분하는 API 에서는
         #   dest_id 가 맞아도 거부당합니다.
         "종류": str(row.get("종류") or "").strip(),
+        "아고다_id": str(row.get("아고다_id") or "").strip(),
         "호텔": str(row.get("호텔") or "").strip(),
         "체크인": 날짜로(row.get("체크인")),
         "체크아웃": 날짜로(row.get("체크아웃")),
@@ -391,6 +400,49 @@ with st.expander("🔎 도시 번호(dest_id) 찾기", expanded=not any(
             _표원본_바꾸기(새행들)
             st.rerun()
 
+# --------------------------------------------------------------------------
+# 아고다 id 찾아 넣기 (선택) — 넣어 두면 그 줄은 부킹닷컴·아고다를 함께
+# 조회해 더 싼 쪽을 씁니다. 안 넣으면 지금까지처럼 부킹닷컴만 봅니다.
+# --------------------------------------------------------------------------
+with st.expander("🅰️ 아고다도 함께 비교하기 (선택)", expanded=False):
+    st.caption("여기서 찾은 값을 넣어 두면, 그 줄은 부킹닷컴과 아고다 중 "
+               "**더 싼 쪽**을 골라 보여줍니다. 안 넣어도 부킹닷컴만으로 "
+               "그대로 동작합니다.")
+    아찾기1, 아찾기2 = st.columns([3, 1])
+    아고다글 = 아찾기1.text_input("도시/호텔 이름 (영어)", value="",
+                              placeholder="Singapore / Carlton Hotel Singapore",
+                              key="호텔_아고다글")
+    if 아찾기2.button("🔎 찾기", width="stretch", key="호텔_아고다찾기",
+                    disabled=not 아고다키 or 손님):
+        아목록, 아찾기오류 = AG.도시_찾기(아고다글, 아고다키, 아고다호스트)
+        st.session_state["호텔_아고다결과"] = 아목록
+        if 아찾기오류:
+            st.error(아찾기오류)
+
+    아고다결과 = st.session_state.get("호텔_아고다결과") or []
+    if 아고다결과:
+        아보기 = [f"{d['라벨'] or d['이름']}  ·  {d['typeName'] or d['typeId']}"
+                f"  ·  id {AG.합친_id(d['typeId'], d['place_id'])}"
+                for d in 아고다결과]
+        아고른번호 = st.selectbox("찾은 곳 중에서 고르세요", range(len(아보기)),
+                             format_func=lambda i: 아보기[i], key="호텔_아고다고름")
+        아고른곳 = 아고다결과[min(아고른번호, len(아고다결과) - 1)]
+        아합친id = AG.합친_id(아고른곳["typeId"], 아고른곳["place_id"])
+
+        아줄이름 = [f"{i + 1}. {(r.get('이름') or '이름 없음')}"
+                 for i, r in enumerate(새감시)]
+        아대상 = st.selectbox("어느 줄에 넣을까요",
+                          range(len(아줄이름)) if 아줄이름 else [0],
+                          format_func=(lambda i: 아줄이름[i]) if 아줄이름
+                          else (lambda i: "(줄 없음)"),
+                          key="호텔_아고다대상줄", disabled=not 아줄이름)
+        if st.button("↳ 이 줄에 아고다_id 넣기", width="stretch",
+                    key="호텔_아고다넣기", disabled=not 아줄이름):
+            새행들 = [dict(r) for r in 새감시]
+            새행들[min(아대상, len(새행들) - 1)]["아고다_id"] = 아합친id
+            _표원본_바꾸기(새행들)
+            st.rerun()
+
 정리목록 = [HT.행_정리(r) for r in 새감시]
 
 # 이름이 겹치면 이력이 섞입니다. 조회 전에 잡아줍니다.
@@ -458,7 +510,8 @@ if 누름:
     for i, p in enumerate(조회가능):
         진행.progress(min(max((i + 1) / len(조회가능), 0.0), 1.0),
                     text=f"{p['이름']} 확인 중…")
-        답 = HT.한줄_확인(p, 상태, 이력, RAPID키, 호스트, 통화)
+        답 = HT.한줄_확인(p, 상태, 이력, RAPID키, 호스트, 통화,
+                       아고다키, 아고다호스트)
         이력 = 답["새이력"]
         상태[p["이름"]] = 답["새상태"]
         결과들[p["이름"]] = {
@@ -466,6 +519,7 @@ if 누름:
             "판정": 답["판정"], "요약": 답["요약"],
             "무료취소": 답.get("무료취소", "모름"),
             "세금포함": 답.get("세금포함", False),
+            "사이트": 답.get("사이트", ""),
             "후보": 답["목록"][:8], "원본있음": 답["원본"] is not None,
         }
         if 답["판정"] and 답["판정"]["알림"]:
@@ -485,7 +539,8 @@ if 누름:
                 채널,
                 HT.알림_문장(p, 답["최저가"], 답["판정"], 답["요약"],
                           답.get("무료취소", "모름"),
-                          답.get("세금포함", False)))
+                          답.get("세금포함", False),
+                          답.get("사이트", "")))
             보낸수 += 수
             for 채널이름, 좋음, 말 in 결과목록:
                 if 좋음:
@@ -574,6 +629,11 @@ for p in 볼것:
                 {"가능": "무료취소 가능", "불가": "무료취소 불가(추정)"}.get(
                     무료취소, "무료취소 확인 필요"),
                 {"가능": "좋음", "불가": "나쁨"}.get(무료취소, "중립")))
+            사이트 = 결과.get("사이트", "")
+            if 사이트:
+                뱃지들.append(ui.뱃지(
+                    {"부킹닷컴": "🅱️ 부킹닷컴", "아고다": "🅰️ 아고다"}.get(
+                        사이트, 사이트), "중립"))
             세금포함 = 결과.get("세금포함", False)
             한박 = (f"1박당 약 {현재가 / p['밤수']:,.0f}원" if p["밤수"] else "")
             표시_라벨 = ("지금 가장 싼 값 (세금 포함)" if 세금포함
@@ -656,6 +716,8 @@ for p in 볼것:
                     "1박당": round(h["가격"] / p["밤수"]) if p["밤수"] else 0,
                     "무료취소": {"가능": "🟢 가능", "불가": "🔴 불가(추정)"}.get(
                         h.get("무료취소", "모름"), "⚪ 확인 필요"),
+                    "사이트": {"부킹닷컴": "🅱️", "아고다": "🅰️"}.get(
+                        h.get("사이트", ""), h.get("사이트", "")),
                 } for h in 후보]).style.format(
                     {"총액(원)": "{:,}", "1박당": "{:,}"}),
                     width="stretch", hide_index=True)
