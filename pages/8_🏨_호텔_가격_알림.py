@@ -826,6 +826,20 @@ Gist 설정이 없으면 자동 확인은 감시 조건을 찾을 수 없습니�
 with st.expander("🧪 응답 원본 보기 (값이 이상할 때)"):
     st.caption("비공식 API 라서 응답 구조가 바뀔 수 있습니다. 가격을 못 읽거나 "
                "엉뚱한 값이 나오면 여기서 원본을 확인하세요.")
+
+    # ★ dest_id·종류·아고다_id 는 표에서 숨겨진 값입니다. 겉보기에 똑같은
+    #   두 줄인데 한 줄만 조회가 실패하는 일이 실제로 있었는데, 원인이
+    #   이 숨은 값들의 차이였습니다. 그래서 여기서 그대로 보여줍니다.
+    if 정리목록:
+        st.caption("**줄마다 실제로 조회에 쓰는 값** (표에서 숨겨진 칸들)")
+        st.dataframe(pd.DataFrame([{
+            "감시 이름": p["이름"],
+            "dest_id": p.get("dest_id") or "(없음)",
+            "종류(search_type)": p.get("종류") or "(없음)",
+            "아고다_id": p.get("아고다_id") or "(없음)",
+            "호텔 필터": p.get("호텔") or "(도시 최저가)",
+        } for p in 정리목록]), width="stretch", hide_index=True)
+
     if not 준비됨:
         st.caption("RapidAPI 키가 없어 조회할 수 없습니다.")
     elif not 조회가능:
