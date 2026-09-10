@@ -464,11 +464,15 @@ def 텔레그램_전체요약(통화목록=None, years: int = 3) -> tuple:
             data, _출처, _기록 = 환율_가져오기(cur, years=years)
             평균, 신뢰 = 평균_계산(data)
             단기 = 단기_요약(data)
+            # ★ 문장 만드는 것도 try 안에 둡니다. 자료가 비어 있으면
+            #   data["Close"].iloc[-1] 에서 터지는데, 이게 try 밖에 있으면
+            #   통화 하나 때문에 그날 요약 전체가 안 나갑니다.
+            한통화 = 텔레그램_통화요약(이름, cur, data, 평균, 신뢰, 단기)
         except Exception as e:                               # noqa: BLE001
             실패.append((이름, str(e)))
             continue
         줄.append("")
-        줄.append(텔레그램_통화요약(이름, cur, data, 평균, 신뢰, 단기))
+        줄.append(한통화)
 
     if 실패:
         줄.append("")
