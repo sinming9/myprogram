@@ -36,9 +36,14 @@
 
 name: 호텔 가격 감시
 
+# ★ 자동 실행을 꺼 두었습니다 (2026-09-16).
+#   호텔 가격 API(비공식 래퍼)가 같은 조건에도 빈 결과를 주는 일이 잦아
+#   6시간마다 실패 메일만 쌓였습니다. 손으로 돌려 볼 수는 있게
+#   workflow_dispatch 는 남겨 둡니다.
+#   다시 자동으로 돌리고 싶으면 아래 schedule 두 줄의 주석(#)을 지우세요.
 on:
-  schedule:
-    - cron: "0 */6 * * *"
+  # schedule:
+  #   - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
