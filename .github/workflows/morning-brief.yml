@@ -26,8 +26,10 @@
 #   Run workflow 로 돌리면 오늘 이미 보냈어도 다시 보냅니다.
 #   메시지 모양만 보고 싶으면 dry_run 을 켜세요 (전송·저장 안 함).
 #
-# [참고]  pip install 이 없습니다. engines/portfolio.py 도 fx.py 도
-#         파이썬 기본 모듈만 쓰기 때문입니다.
+# [참고]  engines/fx.py 가 pandas 를, 환율 조회가 FinanceDataReader 를
+#         쓰기 때문에 설치가 필요합니다. PyPI 이름은 `finance-datareader`
+#         입니다 — 코드에서 쓰는 import 이름(FinanceDataReader)과 달라서,
+#         import 이름으로 설치하면 "그런 패키지 없다" 며 즉시 실패합니다.
 # ==========================================================================
 
 name: 아침 브리핑
@@ -66,6 +68,25 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: 패키지 설치
+        run: pip install -q pandas "finance-datareader>=0.9.90"
+
+      # ★ import 단계에서 죽으면 스크립트 안의 오류 안내가 실행되기도 전이라
+      #   Actions 화면에 "exit code 1" 만 남습니다(실제로 그런 적이 있습니다).
+      #   여기서 먼저 걸러 무엇이 없는지 화면에 띄웁니다.
+      - name: 모듈 확인
+        run: |
+          python - <<'PY'
+          import sys
+          try:
+              from engines import brief, fx, hotel, portfolio  # noqa: F401
+          except Exception as e:
+              print(f"::error::필요한 모듈을 불러오지 못했습니다 — "
+                    f"{type(e).__name__}: {e}")
+              sys.exit(1)
+          print("모듈 확인 완료")
+          PY
 
       - name: 브리핑 보내기
         env:
