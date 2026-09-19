@@ -1,0 +1,79 @@
+# ==========================================================================
+# 아침 브리핑 (환율 + 자산)
+# ==========================================================================
+# 매일 아침 7시쯤 환율과 자산 현황을 한 통으로 보냅니다.
+#
+# [준비]  저장소 → Settings → Secrets and variables → Actions 에 4개.
+#
+#           TELEGRAM_TOKEN      텔레그램 봇 토큰                (필수)
+#           TELEGRAM_CHAT_ID    내 chat_id                      (필수)
+#           GIST_TOKEN          gist 권한을 준 개인 토큰(PAT)    (필수)
+#           GIST_ID             자료가 들어 있는 비공개 Gist id  (필수)
+#
+#         앱에서 자산배분 화면을 열고 한 번 저장해 두어야 합니다.
+#
+# [왜 세 번 예약하나]
+#   GitHub 예약 실행은 정시에 오지 않습니다. 매시 정각(:00)에 작업이
+#   몰려 길게는 한두 시간까지 밀립니다(08:00 설정이 09:47 에 돈 적이
+#   있습니다). 그래서 세 번 예약하고, 스크립트가 "오늘 이미 보냈으면"
+#   그냥 끝냅니다. 셋 중 하나만 제때 돌면 7시 전후에 도착합니다.
+#
+#     "50 21 * * *"  → 한국시간 06:50
+#     "10 22 * * *"  → 한국시간 07:10
+#     "30 22 * * *"  → 한국시간 07:30
+#
+# [손으로 돌려보기]
+#   Run workflow 로 돌리면 오늘 이미 보냈어도 다시 보냅니다.
+#   메시지 모양만 보고 싶으면 dry_run 을 켜세요 (전송·저장 안 함).
+#
+# [참고]  pip install 이 없습니다. engines/portfolio.py 도 fx.py 도
+#         파이썬 기본 모듈만 쓰기 때문입니다.
+# ==========================================================================
+
+name: 아침 브리핑
+
+on:
+  schedule:
+    - cron: "50 21 * * *"
+    - cron: "10 22 * * *"
+    - cron: "30 22 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "계산만 하고 보내지 않음 (메시지 모양만 확인)"
+        type: boolean
+        default: false
+
+# 앞선 실행이 아직 돌고 있으면 기다립니다.
+# 두 개가 동시에 Gist 를 쓰면 한쪽 기록이 사라집니다.
+concurrency:
+  group: morning-brief
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 저장소 받기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 준비
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 브리핑 보내기
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          # 손으로 돌릴 때는 '오늘 이미 보냄' 검사를 건너뜁니다
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: python scripts/morning_brief.py
