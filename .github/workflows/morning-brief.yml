@@ -26,6 +26,16 @@
 #   Run workflow 로 돌리면 오늘 이미 보냈어도 다시 보냅니다.
 #   메시지 모양만 보고 싶으면 dry_run 을 켜세요 (전송·저장 안 함).
 #
+# [잘못되면 어떻게 아나]  — 세 겹으로 막았습니다
+#   1) 자동 점검   메시지를 만들기 전에 tests/self_check.py 를 돌립니다.
+#                  여기서 걸리면 그날은 아무것도 보내지 않습니다.
+#                  틀린 글을 받는 것보다 안 오는 편이 낫습니다.
+#   2) 숫자 점검   스크립트가 그날 값끼리 앞뒤가 맞는지 보고, 어긋나면
+#                  메시지 맨 아래에 "믿지 말라" 고 붙입니다.
+#   3) 실패 알림   어느 단계에서 죽든 텔레그램으로 알립니다. 예전에는
+#                  실패하면 **아무 일도 안 일어나서** Actions 화면을
+#                  직접 열어 보기 전에는 몰랐습니다.
+#
 # [참고]  engines/fx.py 가 pandas 를, 환율 조회가 FinanceDataReader 를
 #         쓰기 때문에 설치가 필요합니다. PyPI 이름은 `finance-datareader`
 #         입니다 — 코드에서 쓰는 import 이름(FinanceDataReader)과 달라서,
@@ -52,13 +62,21 @@ concurrency:
   group: morning-brief
   cancel-in-progress: false
 
+# contents: write 는 아래 '예약 깨워 두기' 가 커밋을 하나 남기기 때문입니다.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   brief:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 전체 한도는 넉넉히, '브리핑 보내기' 단계에는 따로 짧은 한도를 둡니다.
+    # ★ job 한도에 걸리면 '취소' 로 끝나서 실패 알림이 안 갑니다.
+    #   단계 한도에 걸리면 '실패' 로 끝나서 알림 단계가 돕니다.
+    timeout-minutes: 20
+    env:
+      # 러너 시계는 UTC 입니다. 스크립트가 한국 날짜를 직접 구하지만,
+      # 셸 명령(date 등)도 한국 기준이 되게 맞춰 둡니다.
+      TZ: Asia/Seoul
 
     steps:
       - name: 저장소 받기
@@ -80,7 +98,7 @@ jobs:
           python - <<'PY'
           import sys
           try:
-              from engines import brief, fx, hotel, portfolio  # noqa: F401
+              from engines import brief, fx, portfolio, telegram  # noqa: F401
           except Exception as e:
               print(f"::error::필요한 모듈을 불러오지 못했습니다 — "
                     f"{type(e).__name__}: {e}")
@@ -88,7 +106,13 @@ jobs:
           print("모듈 확인 완료")
           PY
 
+      # 메시지를 만들기 전에 계산·표기가 멀쩡한지 봅니다.
+      # 여기서 실패하면 다음 단계로 안 넘어가므로 잘못된 글이 안 나갑니다.
+      - name: 자동 점검
+        run: python tests/self_check.py
+
       - name: 브리핑 보내기
+        timeout-minutes: 12
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -98,3 +122,75 @@ jobs:
           # 손으로 돌릴 때는 '오늘 이미 보냄' 검사를 건너뜁니다
           FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python scripts/morning_brief.py
+
+      # ----------------------------------------------------------------
+      # 예약이 잠들지 않게 — 주 1회 작은 커밋을 남깁니다
+      # ----------------------------------------------------------------
+      # GitHub 은 **공개 저장소**에서 60일 동안 아무 활동이 없으면 예약
+      # 실행(schedule)을 스스로 꺼 버립니다. 메일이 오긴 하지만 놓치면
+      # 알림이 조용히 끊깁니다. 커밋이 하나 올라가면 그 60일이 다시
+      # 0일부터 셉니다. (Run workflow 를 손으로 눌러도 초기화됩니다)
+      #
+      # 파일 하나의 날짜만 바꾸므로 코드에는 영향이 없습니다.
+      # 비공개 저장소라면 이 규칙이 없으니 이 단계를 지워도 됩니다.
+      #
+      # ★ 세 번 예약 중 첫 번째(06:50)에서만 합니다. 예전에는 세 번 다
+      #   커밋하려다 2·3회차 push 가 거부되면서, 브리핑은 잘 갔는데
+      #   🚨 실패 알림이 갔습니다. 여기서 실패해도 알림이 가지 않도록
+      #   continue-on-error 를 둡니다 — 브리핑과는 상관없는 일입니다.
+      - name: 예약 깨워 두기
+        if: github.event_name == 'schedule' && github.event.schedule == '50 21 * * *'
+        continue-on-error: true
+        run: |
+          # TZ=Asia/Seoul 이라 한국 요일입니다 (1 = 월요일)
+          if [ "$(date +%u)" != "1" ]; then
+            echo "주 1회(한국시간 월요일)만 합니다 — 오늘은 건너뜁니다"
+            exit 0
+          fi
+          mkdir -p .github
+          date +"%Y-%m-%d" > .github/keepalive.txt
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/keepalive.txt
+          git commit -m "chore: 예약 실행 유지용 기록" \
+            || { echo "바뀐 것이 없어 넘어갑니다"; exit 0; }
+          git push || echo "::warning::예약 유지용 커밋을 올리지 못했습니다 (브리핑과 무관)"
+
+      # ----------------------------------------------------------------
+      # 어디서 죽든 여기로 옵니다
+      # ----------------------------------------------------------------
+      # ★ 이게 없으면 실패가 '알림이 안 온 날' 과 구분되지 않습니다.
+      #   못 온 건지 안 온 건지(조용한 날) 모른 채 며칠이 지나갑니다.
+      #   cancelled() 도 넣는 이유 — 시간 한도에 걸려 '취소' 로 끝난 날도
+      #   알려야 합니다. failure() 만 쓰면 그날은 조용히 넘어갑니다.
+      - name: 실패하면 알리기
+        if: failure() || cancelled()
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # 셸 변수 이름은 영문만 됩니다 (한글은 bash 가 못 읽습니다)
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TELEGRAM_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::warning::토큰이 없어 실패 알림조차 보내지 못했습니다"
+            exit 0
+          fi
+          MSG=$(printf '%s\n' \
+            "🚨 <b>아침 브리핑 실패</b>" \
+            "" \
+            "오늘 알림을 보내지 못했습니다." \
+            "이유는 아래 기록의 Annotations 칸에 한국어로 적혀 있습니다." \
+            "" \
+            "$RUN_URL")
+          # ★ 응답을 확인합니다. 예전에는 버려서, 토큰이 만료돼 텔레그램이
+          #   거절해도 '실패 알림 보냄' 이라고 찍혔습니다.
+          OUT=$(curl -sS -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "disable_web_page_preview=true" \
+            --data-urlencode "text=${MSG}" 2>&1 || true)
+          case "$OUT" in
+            *'"ok":true'*) echo "실패 알림 보냄" ;;
+            *) echo "::warning::실패 알림도 텔레그램이 받지 않았습니다: ${OUT}" ;;
+          esac
