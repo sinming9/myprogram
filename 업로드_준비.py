@@ -200,7 +200,7 @@ def main():
         print("   시작하는 폴더를 숨기는 탓입니다). 빠지면 자동 감시가 안 돕니다.")
         print("   확실한 방법 — GitHub 저장소에서")
         print("     Add file → Create new file →")
-        print("     이름 칸에 `.github/workflows/hotel-watch.yml` 을 직접 입력 →")
+        print("     이름 칸에 `.github/workflows/morning-brief.yml` 을 직접 입력 →")
         print("     아래 파일의 내용을 붙여넣기")
         for 뿌리, _폴더들, 파일들 in os.walk(깃허브폴더):
             for 이름 in sorted(파일들):

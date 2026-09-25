@@ -20,6 +20,8 @@
 모듈버전 = "2026-09-02"
 
 
+import os
+
 import streamlit as st
 
 # ==========================================================================
@@ -429,7 +431,6 @@ def 테마_안내():
     ("pages/7_💎_순자산.py", "💎", "순자산"),
     ("pages/7_🔮_미래_자산.py", "🔮", "미래자산"),
     ("pages/7_🧓_연금.py", "🧓", "연금"),
-    ("pages/8_🏨_호텔_가격_알림.py", "🏨", "호텔알림"),
     ("pages/8_📥_자료_가져오기.py", "📥", "가져오기"),
     ("pages/9_➕_내_프로그램.py", "➕", "내 프로그램"),
 ]
@@ -441,7 +442,13 @@ def 페이지_메뉴(현재파일: str = ""):
     현재파일 에는 __file__ 을 넘기면 그 항목은 빼고 보여줍니다.
     """
     현재 = (현재파일 or "").replace("\\", "/").split("/")[-1]
-    보일것 = [m for m in 메뉴목록 if not (현재 and m[0].split("/")[-1] == 현재)]
+    # ★ 파일이 없는 페이지는 건너뜁니다. 페이지를 지웠는데 이 목록이 옛날
+    #   것이면 page_link 가 StreamlitPageNotFoundError 를 내서 앱 전체가
+    #   멈췄습니다(호텔 페이지를 지울 때 실제로 그랬습니다).
+    뿌리 = os.path.dirname(os.path.abspath(__file__))
+    보일것 = [m for m in 메뉴목록
+            if not (현재 and m[0].split("/")[-1] == 현재)
+            and os.path.exists(os.path.join(뿌리, m[0]))]
     if not 보일것:
         return
     st.markdown('<div class="navrow">', unsafe_allow_html=True)
