@@ -345,12 +345,10 @@ else:
 
     if st.button("📨 지금 텔레그램으로 보내기", width="stretch",
                  key="환율_텔레_보내기"):
-        from engines import hotel as _HT
-        # ★ 텔레그램 전송 함수는 engines/hotel.py 에 있습니다. 호텔에만
-        #   쓰는 내용이 아니라 일반적인 HTTP 요청이라서 그대로 가져다 씁니다.
+        from engines import telegram as _TG
         with st.spinner("5개 통화를 확인하는 중이에요..."):
             본문, 실패목록 = FX.텔레그램_전체요약()
-        좋음, 말 = _HT.텔레그램_보내기(텔레토큰, 텔레방, 본문)
+        좋음, 말 = _TG.텔레그램_보내기(텔레토큰, 텔레방, 본문)
         (st.success if 좋음 else st.error)(말)
         if 실패목록:
             st.caption("못 가져온 통화: "
