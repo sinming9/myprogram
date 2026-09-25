@@ -104,6 +104,43 @@ def _http_오류(e) -> tuple:
     return f"텔레그램 응답 {e.code}. {안내} {속}".strip(), None
 
 
+def 채팅찾기(토큰, 시간제한=15) -> tuple:
+    """봇에게 말을 건 대화방 id 를 찾아 줍니다. (목록, 오류)
+
+    chat_id 를 손으로 알아내는 게 처음 설정에서 가장 막히는 부분입니다.
+    봇에게 아무 말이나 보낸 뒤 이 함수를 부르면 id 가 나옵니다.
+    """
+    if not 토큰:
+        return [], "봇 토큰이 없습니다."
+    주소 = f"https://api.telegram.org/bot{str(토큰).strip()}/getUpdates"
+    try:
+        with urllib.request.urlopen(주소, timeout=시간제한) as resp:
+            결과 = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:                                   # noqa: BLE001
+        return [], f"읽지 못했습니다: {type(e).__name__}: {e}"
+    if not 결과.get("ok"):
+        return [], str(결과.get("description") or "알 수 없는 오류")
+
+    본것, 목록 = set(), []
+    for u in (결과.get("result") or []):
+        방 = ((u.get("message") or u.get("edited_message")
+              or u.get("channel_post") or {}).get("chat") or {})
+        아이디 = 방.get("id")
+        if 아이디 is None or 아이디 in 본것:
+            continue
+        본것.add(아이디)
+        이름 = (방.get("title") or " ".join(
+            x for x in (방.get("first_name"), 방.get("last_name")) if x)
+            or 방.get("username") or "")
+        목록.append({"chat_id": str(아이디), "이름": 이름,
+                    "종류": str(방.get("type") or "")})
+    if not 목록:
+        return [], ("최근 대화가 없습니다. 텔레그램에서 봇을 찾아 "
+                    "아무 말이나 보낸 뒤 다시 누르세요. "
+                    "(24시간이 지난 대화는 안 보입니다)")
+    return 목록, None
+
+
 def 텔레그램_보내기(토큰, 채팅id, 글, 시간제한=20) -> tuple:
     """(성공, 메시지) — 예전 모양을 그대로 쓰는 곳을 위한 얇은 포장.
 
