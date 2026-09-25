@@ -94,9 +94,34 @@ CURRENCIES = {
 # ---------------------------------------------------------------------------
 # 개별 시계열 조회
 # ---------------------------------------------------------------------------
+묵음_한도일 = 5     # 마지막 자료가 이보다 오래되면 '묵은 자료' 로 봅니다
+
+
+def _시간제한(함수, 초):
+    """함수를 최대 '초' 만큼만 기다립니다.
+
+    ★ FinanceDataReader 는 안에서 requests 를 시간 제한 없이 부릅니다.
+      야후가 연결만 받고 응답을 안 주는 날에는 무기한 멈춰서, 아침
+      브리핑이 워크플로 시간 한도에 걸렸습니다. 스레드로 돌려 끊습니다.
+      (멈춘 스레드는 남지만 스크립트가 끝나면 같이 사라집니다)
+    """
+    import concurrent.futures as cf
+    풀 = cf.ThreadPoolExecutor(max_workers=1)
+    try:
+        return 풀.submit(함수).result(timeout=초)
+    except cf.TimeoutError:
+        raise TimeoutError(f"{초}초 안에 응답이 없습니다") from None
+    finally:
+        풀.shutdown(wait=False)
+
+
 def _fdr_시리즈(symbol, start, end) -> pd.Series:
     import FinanceDataReader as fdr
-    data = fdr.DataReader(symbol, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+    # end 에 하루를 더합니다. FDR 은 날짜만 받아서 실행 기계의 자정으로
+    # 자르는데, 한국 PC 에서는 이러면 오늘 장이 통째로 빠집니다.
+    끝 = (end + timedelta(days=1)).strftime("%Y-%m-%d")
+    data = _시간제한(lambda: fdr.DataReader(
+        symbol, start.strftime("%Y-%m-%d"), 끝), 25)
     if data is None or data.empty or "Close" not in data:
         raise ValueError(f"{symbol}: 응답이 비어 있습니다")
     s = pd.to_numeric(data["Close"], errors="coerce").dropna()
@@ -105,27 +130,56 @@ def _fdr_시리즈(symbol, start, end) -> pd.Series:
     return s.sort_index()
 
 
-def _stooq_시리즈(code, start, end) -> pd.Series:
+def _야후_시리즈(symbol, start, end) -> pd.Series:
+    """야후 차트를 직접 부릅니다. FDR 이 깨진 날의 대체 경로입니다.
+
+    ★ 예전 대체 경로였던 stooq 는 404 를 주다가 이제는 연결조차 안 돼서,
+      '경로 네 개' 가 실제로는 FDR 하나뿐이었습니다. FDR 이 실패하면 환율
+      5종이 전부 빠졌습니다. 같은 야후라도 FDR 과 다른 주소(query1)·다른
+      방식이라 FDR 쪽 문제(라이브러리·pandas 호환)와는 따로 삽니다.
+    """
+    import json
+    import urllib.parse
     import urllib.request
-    url = (f"https://stooq.com/q/d/l/?s={code}"
-           f"&d1={start.strftime('%Y%m%d')}&d2={end.strftime('%Y%m%d')}&i=d")
-    with urllib.request.urlopen(url, timeout=20) as resp:
-        text = resp.read().decode("utf-8", errors="replace")
-    if not text.startswith("Date"):
-        raise ValueError(f"{code}: stooq 응답 형식이 예상과 다릅니다")
-    data = pd.read_csv(StringIO(text), parse_dates=["Date"]).set_index("Date")
-    if data.empty or "Close" not in data:
-        raise ValueError(f"{code}: stooq 응답이 비어 있습니다")
-    s = pd.to_numeric(data["Close"], errors="coerce").dropna()
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/"
+           f"{urllib.parse.quote(symbol)}?period1={int(start.timestamp())}"
+           f"&period2={int((end + timedelta(days=1)).timestamp())}&interval=1d")
+    요청 = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(요청, timeout=15) as resp:
+        js = json.loads(resp.read().decode("utf-8"))
+    결과 = ((js.get("chart") or {}).get("result") or [None])[0]
+    if not 결과 or not 결과.get("timestamp"):
+        raise ValueError(f"{symbol}: 야후 응답이 비어 있습니다")
+    # 야후 FX 일봉은 런던 자정에 시작합니다. 거래소 시차를 더해 '그 봉의
+    # 현지 날짜' 로 붙여야 여름에 하루씩 앞당겨지지 않습니다.
+    시차 = int((결과.get("meta") or {}).get("gmtoffset") or 0)
+    날짜 = pd.to_datetime([t + 시차 for t in 결과["timestamp"]], unit="s").normalize()
+    종가 = (결과.get("indicators") or {}).get("quote", [{}])[0].get("close") or []
+    s = pd.to_numeric(pd.Series(종가, index=날짜), errors="coerce").dropna()
+    s = s[~s.index.duplicated(keep="last")]
     if s.empty:
-        raise ValueError(f"{code}: 유효한 종가가 없습니다")
+        raise ValueError(f"{symbol}: 유효한 종가가 없습니다")
     return s.sort_index()
 
 
+def 묵은날수(시리즈, 오늘=None) -> int:
+    """마지막 자료가 오늘보다 며칠 전인지."""
+    오늘 = pd.Timestamp(오늘 or datetime.today()).normalize()
+    return int((오늘 - pd.Timestamp(시리즈.index.max()).normalize()).days)
+
+
 def _합성(방법, 시리즈A, 시리즈B) -> pd.Series:
-    """두 시계열을 날짜 기준으로 맞춰서 나누거나 곱합니다."""
-    묶음 = pd.concat([시리즈A.rename("a"), 시리즈B.rename("b")], axis=1)
-    묶음 = 묶음.ffill().dropna()
+    """두 시계열을 날짜 기준으로 맞춰서 나누거나 곱합니다.
+
+    ★ 두 시계열의 마지막 날이 다르면 공통 마지막 날까지만 씁니다.
+      예전에는 ffill 이 먼저 끝난 쪽 값을 끝까지 끌고 가서 '오늘 원화 ÷
+      이틀 전 위안' 을 성공으로 돌려줬습니다. 중간 공백은 사흘까지만
+      채웁니다(주말·휴일 정도).
+    """
+    끝 = min(시리즈A.index.max(), 시리즈B.index.max())
+    묶음 = pd.concat([시리즈A[시리즈A.index <= 끝].rename("a"),
+                    시리즈B[시리즈B.index <= 끝].rename("b")], axis=1)
+    묶음 = 묶음.ffill(limit=3).dropna()
     if 묶음.empty:
         raise ValueError("합성할 두 시계열에 겹치는 날짜가 없습니다")
     결과 = 묶음["a"] / 묶음["b"] if 방법 == "나누기" else 묶음["a"] * 묶음["b"]
@@ -183,23 +237,20 @@ def 환율_가져오기(currency: dict, years: int = 3) -> tuple:
         방법, 위, 아래 = cross
         return _합성(방법, _fdr_시리즈(위, start, end), _fdr_시리즈(아래, start, end))
 
-    def 직접_stooq():
-        return _stooq_시리즈(currency["stooq"], start, end)
+    def 직접_야후():
+        return _야후_시리즈(currency["direct"], start, end)
 
-    def 합성_stooq():
+    def 합성_야후():
         방법, 위, 아래 = cross
-        코드 = {"KRW=X": "usdkrw", "JPY=X": "usdjpy", "CNY=X": "usdcny",
-              "SGD=X": "usdsgd", "EURUSD=X": "eurusd"}
-        return _합성(방법, _stooq_시리즈(코드[위], start, end),
-                   _stooq_시리즈(코드[아래], start, end))
+        return _합성(방법, _야후_시리즈(위, start, end),
+                   _야후_시리즈(아래, start, end))
 
-    경로 = [("직접 조회", 직접_fdr)]
+    경로 = [("직접 조회", 직접_fdr), ("야후 직접", 직접_야후)]
     if cross:
         방법, 위, 아래 = cross
-        경로.append((f"달러 경유 합성 ({위} {'÷' if 방법 == '나누기' else '×'} {아래})", 합성_fdr))
-    경로.append(("stooq 직접", 직접_stooq))
-    if cross:
-        경로.append(("stooq 합성", 합성_stooq))
+        기호 = "÷" if 방법 == "나누기" else "×"
+        경로.append((f"달러 경유 합성 ({위} {기호} {아래})", 합성_fdr))
+        경로.append((f"야후 합성 ({위} {기호} {아래})", 합성_야후))
 
     def _표(시리즈):
         df = pd.DataFrame({"Close": 시리즈})
@@ -213,6 +264,15 @@ def 환율_가져오기(currency: dict, years: int = 3) -> tuple:
             시리즈 = 함수() * 배수
             _범위확인(시리즈, currency)
             충분, 설명 = _자료충분한가(시리즈, years)
+            # ★ 조회는 '성공' 인데 몇 주 전에 멈춘 자료가 올 때가 있습니다
+            #   (야후가 교차 티커를 죽인 경우 등). 예전에는 날짜를 안 봐서
+            #   묵은 환율이 매일 오늘 값처럼 나갔습니다. 묵었으면 다음
+            #   경로를 먼저 시도하고, 모두 묵었을 때만 이걸 씁니다.
+            묵음 = 묵은날수(시리즈, end)
+            if 묵음 > 묵음_한도일:
+                기록.append(f"{이름}: 자료가 {묵음}일 묵음")
+                아쉬운후보.append((시리즈, 이름, f"{묵음}일 전 자료"))
+                continue
             if 충분:
                 기록.append(f"{이름}: 성공 ({설명})")
                 return _표(시리즈), 이름, 기록
@@ -223,7 +283,9 @@ def 환율_가져오기(currency: dict, years: int = 3) -> tuple:
 
     if 아쉬운후보:
         # 완전한 곳이 없으면 그중 가장 이력이 긴 것을 씁니다 (경고와 함께)
-        시리즈, 이름, 설명 = max(아쉬운후보, key=lambda x: len(x[0]))
+        # 덜 묵은 것을 먼저, 그다음 이력이 긴 것
+        시리즈, 이름, 설명 = max(
+            아쉬운후보, key=lambda x: (-묵은날수(x[0], end), len(x[0])))
         기록.append(f"→ {이름} 사용 (자료가 부족하니 긴 기간 평균은 참고만 하세요)")
         return _표(시리즈), f"{이름} · 자료 부족({설명})", 기록
 
