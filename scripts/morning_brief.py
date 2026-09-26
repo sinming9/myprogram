@@ -389,6 +389,86 @@ def 기록_다듬기(스냅샷들, 오늘날짜) -> list:
     return 결과[-보관일수:]
 
 
+def 유령KS_보정(기록, 스냅샷들, 종목들, 조회=None) -> list:
+    """옛 코드가 '유령 .KS' 가격으로 남긴 지난 기록을 진짜 가격으로 고칩니다.
+
+    ★ 코스닥 종목 상당수가 야후에 멈춘 '.KS' 항목(2024-07 가격)을 갖고
+      있어서, 옛 코드는 힘스를 실제의 2.5배로 계산해 기록에 남겼습니다.
+      새 코드가 진짜 가격을 쓰기 시작한 날 '힘스 -260만원' 처럼 가짜
+      움직임이 나왔고, 옛 기록과 비교하는 '이번 주'·'지난달' 도 틀립니다.
+
+      옛 코드가 쓴 가격 = .KS 의 멈춘 meta 가격(날마다 같음)
+      진짜 가격         = 그 기록 날짜의 .KQ 종가
+      차이 × 수량 만큼 총액·계좌·시장·자산군·종목 칸을 고칩니다.
+
+    옛 기록은 '시세실패' 칸이 없는 것으로 알아봅니다(새 코드가 붙임).
+    한 번만 돌도록 기록['보정'] 에 표시합니다. 고친 종목 이름 목록을 반환.
+    """
+    if (기록.get("보정") or {}).get("유령KS"):
+        return []
+    조회 = 조회 or PF._야후_조회
+    옛것 = [s for s in 스냅샷들 if "시세실패" not in s]
+    고친것 = []
+    본티커 = set()
+    for 행 in 종목들:
+        티커, 시장 = PF._시세열쇠(행)
+        if 시장 != "KR" or not PF.한국_종목코드인가(티커) or 티커 in 본티커:
+            continue
+        본티커.add(티커)
+        try:
+            ks = 조회(f"{티커}.KS")
+            메타 = ks.get("meta") or {}
+            if str(메타.get("exchangeName") or "") in ("", "KSC"):
+                continue                               # 진짜 코스피 — 해당 없음
+            유령가 = float(메타.get("regularMarketPrice") or 0)
+            kq = 조회(f"{티커}.KQ")
+        except Exception:                                    # noqa: BLE001
+            continue
+        종가표 = {}
+        for t, v in zip(kq.get("timestamp") or [],
+                        ((kq.get("indicators") or {}).get("quote") or [{}])[0]
+                        .get("close") or []):
+            if v:
+                종가표[datetime.fromtimestamp(t, 한국시간).date().isoformat()] = float(v)
+        if not 유령가 or not 종가표:
+            continue
+        날짜들 = sorted(종가표)
+        같은티커 = [r for r in 종목들 if PF._시세열쇠(r)[0] == 티커]
+        for s in 옛것:
+            이전 = [d for d in 날짜들 if d <= str(s.get("날짜"))]
+            if not 이전:
+                continue
+            진짜 = 종가표[이전[-1]]
+            for r in 같은티커:
+                if r.get("평가액(직접입력)"):
+                    continue
+                계좌 = str(r.get("계좌") or "기타").strip() or "기타"
+                자산군 = str(r.get("자산군") or "기타").strip() or "기타"
+                칸 = (s.get("종목") or {}).get(f"{계좌}|{티커}") or {}
+                수량 = PF._숫자(칸.get("수량") or r.get("수량"))
+                차이 = 수량 * (진짜 - 유령가)
+                if abs(차이) < 1:
+                    continue
+                s["총액"] = PF._숫자(s.get("총액")) + 차이
+                if isinstance(s.get("계좌"), dict):
+                    s["계좌"][계좌] = PF._숫자(s["계좌"].get(계좌)) + 차이
+                시장칸 = (s.get("계좌시장") or {}).get(계좌)
+                if isinstance(시장칸, dict):
+                    시장칸["KR"] = PF._숫자(시장칸.get("KR")) + 차이
+                if isinstance(s.get("자산군"), dict):
+                    s["자산군"][자산군] = PF._숫자(s["자산군"].get(자산군)) + 차이
+                if 칸:
+                    칸["금액"] = PF._숫자(칸.get("금액")) + 차이
+                이름 = str(r.get("이름") or 티커)
+                if 이름 not in 고친것:
+                    고친것.append(이름)
+    기록.setdefault("보정", {})["유령KS"] = True
+    if 고친것:
+        # 역대 최고도 부풀려진 값일 수 있으니 고친 기록에서 다시 구합니다
+        기록.pop("최고", None)
+    return 고친것
+
+
 def 최근_위치(스냅샷들, 통화이름, 오늘날짜):
     """그 통화의 위치가 남아 있는 가장 최근 기록의 위치.
 
@@ -490,6 +570,12 @@ def 실행() -> int:
         오류글("자산배분에 저장된 종목이 없습니다.")
         return 1
     알림글(f"   종목 {len(종목들)}개")
+
+    # 옛 코드가 남긴 '유령 .KS' 가격 기록을 한 번 고칩니다 (비교 전에)
+    if not 담긴것.get("_기록실패"):
+        고친것 = 유령KS_보정(기록, 스냅샷들, 종목들)
+        if 고친것:
+            알림글(f"   지난 기록 보정 (유령 .KS 가격): {', '.join(고친것)}")
 
     어제 = 어제것(스냅샷들, 오늘날짜)
 
