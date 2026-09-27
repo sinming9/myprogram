@@ -206,10 +206,35 @@ span[data-testid="stIconMaterial"]::after {
   opacity: .45;
 }
 
-/* 화면 안 이동 메뉴 */
-.navrow { margin: -6px 0 14px 0; }
-.navrow [data-testid="stHorizontalBlock"] { gap: .3rem !important; }
+/* 화면 안 이동 메뉴 — 같은 묶음 페이지를 알약 모양으로 한 줄에
+   ★ 예전에는 <div class="navrow"> 를 markdown 으로 열고 닫았는데,
+     Streamlit 은 그 사이 요소를 div 안에 넣지 않아서 이 스타일이 한 번도
+     적용된 적이 없었습니다. 이제는 st.container(key=…) 가 붙이는
+     .st-key-… 클래스로 잡습니다. */
+.st-key-navrow { gap: .35rem !important; margin: -4px 0 12px 0; }
+.st-key-navrow [data-testid="stPageLink"] a {
+  padding: .18rem .7rem; border-radius: 999px;
+  border: 1px solid rgba(128,128,128,.28);
+  font-size: .82rem; line-height: 1.4;
+}
+.st-key-navrow [data-testid="stPageLink"] a:hover { border-color: rgba(43,110,213,.6); }
+.st-key-navrow p { margin: 0 !important; }
 [data-testid="stPageLink"] a { font-size: .84rem; }
+
+/* 첫 화면 묶음 제목과 카드 간격 */
+.묶음제목 { font-size: .8rem; font-weight: 700; letter-spacing: .02em;
+          opacity: .62; margin: 1.1rem 0 .35rem 0; }
+/* 첫 화면 상자 — key 가 homecard_ / homebox_ 로 시작하는 것만.
+   (이 버전의 테두리 상자에는 따로 표시가 없어 key 로 잡습니다) */
+[class*="st-key-homecard"], [class*="st-key-homebox"] { border-radius: 12px; }
+[class*="st-key-homecard"] { gap: .75rem !important; }
+[class*="st-key-homebox"]  { gap: .45rem !important; }
+/* 상자 안 큰 숫자(###) 위의 빈 공간 — 제목과 숫자가 떨어져 보이던 것 */
+[class*="st-key-homecard"] h3 { padding: 0 !important; margin: 0 !important; }
+[class*="st-key-homecard"] [data-testid="stCaptionContainer"] p { margin-bottom: 0; }
+
+/* 사이드바 묶음 제목 */
+[data-testid="stNavSectionHeader"] { margin-top: .6rem; font-weight: 700; }
 
 /* 탭은 조금 더 또렷하게 */
 [data-testid="stTabs"] [data-baseweb="tab"] { font-size: .92rem; }
@@ -419,47 +444,99 @@ def 테마_안내():
 #   각 페이지 맨 위에 넣는 링크 줄입니다.
 # ==========================================================================
 
-메뉴목록 = [
-    ("Home.py", "🗂️", "홈"),
-    ("pages/1_🏦_대출_상환_계산기.py", "🏦", "대출"),
-    ("pages/2_💱_환전_타이밍.py", "💱", "환전"),
-    ("pages/3_🏠_재산세_종부세.py", "🏠", "재산세"),
-    ("pages/4_💰_연봉_급여_관리.py", "💰", "연봉"),
-    ("pages/5_🥚_금리_사이클.py", "🥚", "금리"),
-    ("pages/6_🏷️_양도세_계산기.py", "🏷️", "양도세"),
-    ("pages/7_📊_자산배분.py", "📊", "자산배분"),
-    ("pages/7_💎_순자산.py", "💎", "순자산"),
-    ("pages/7_🔮_미래_자산.py", "🔮", "미래자산"),
-    ("pages/7_🧓_연금.py", "🧓", "연금"),
-    ("pages/8_📥_자료_가져오기.py", "📥", "가져오기"),
-    ("pages/9_➕_내_프로그램.py", "➕", "내 프로그램"),
+#   ★ 메뉴는 여기 한 곳에서만 정합니다. 사이드바(Home.py 의 st.navigation),
+#     페이지 위 알약 줄, 첫 화면 카드가 모두 이 목록을 씁니다.
+#
+#   묶는 기준은 "무엇을 보러 가나" 입니다.
+#     시장     — 바깥 상황 (환율, 금리 국면)
+#     내 자산  — 내가 입력해 두고 계속 들여다보는 내 돈
+#     계산기   — 일이 생겼을 때만 여는 것
+#     도구     — 가끔
+홈페이지 = ("pages/0_🗂️_홈.py", "🗂️", "홈", "")
+
+메뉴묶음 = [
+    ("📈 시장", [
+        ("pages/2_💱_환전_타이밍.py", "💱", "환전 타이밍",
+         "달러·엔·유로·위안·싱달러의 기간별 평균 대비 지금 환율"),
+        ("pages/5_🥚_금리_사이클.py", "🥚", "금리 사이클",
+         "달걀 모형으로 보는 기준금리 위치 · FOMC 확률"),
+    ]),
+    ("💼 내 자산", [
+        ("pages/7_📊_자산배분.py", "📊", "자산배분",
+         "주식·ETF·펀드·코인을 계좌별로 · 리밸런싱"),
+        ("pages/7_💎_순자산.py", "💎", "순자산",
+         "내 몫 / 가족 몫 / 가구 합계 · 전국 백분위"),
+        ("pages/7_🔮_미래_자산.py", "🔮", "미래 자산",
+         "모으는 돈이 얼마나 불어나는지 (가정 기반)"),
+        ("pages/7_🧓_연금.py", "🧓", "연금",
+         "국민연금·퇴직연금·연금저축으로 보는 노후 월 수령액"),
+        ("pages/4_💰_연봉_급여_관리.py", "💰", "연봉",
+         "연도별 연봉, 물가 대비 실질 인상률"),
+    ]),
+    ("🧮 계산기", [
+        ("pages/1_🏦_대출_상환_계산기.py", "🏦", "대출 상환",
+         "고정→변동금리, 중도상환, 중도상환수수료"),
+        ("pages/3_🏠_부동산_세금.py", "🏠", "부동산 세금",
+         "재산세·종부세 · 양도소득세"),
+    ]),
+    ("⚙️ 도구", [
+        ("pages/8_📥_자료_가져오기.py", "📥", "자료 가져오기",
+         "예전 프로그램에서 저장한 JSON 파일 올리기"),
+        ("pages/9_➕_내_프로그램.py", "➕", "내 프로그램",
+         "myapps/ 에 넣은 내가 만든 계산기"),
+    ]),
 ]
 
+# 예전 코드와 맞추려고 남겨 둔 평평한 목록 (경로, 아이콘, 이름)
+메뉴목록 = [홈페이지[:3]] + [m[:3] for _, 묶음 in 메뉴묶음 for m in 묶음]
 
-def 페이지_메뉴(현재파일: str = ""):
-    """페이지 맨 위에 이동 링크를 한 줄로 깝니다.
+_뿌리 = os.path.dirname(os.path.abspath(__file__))
 
-    현재파일 에는 __file__ 을 넘기면 그 항목은 빼고 보여줍니다.
-    """
-    현재 = (현재파일 or "").replace("\\", "/").split("/")[-1]
+
+def _있나(경로: str) -> bool:
     # ★ 파일이 없는 페이지는 건너뜁니다. 페이지를 지웠는데 이 목록이 옛날
     #   것이면 page_link 가 StreamlitPageNotFoundError 를 내서 앱 전체가
     #   멈췄습니다(호텔 페이지를 지울 때 실제로 그랬습니다).
-    뿌리 = os.path.dirname(os.path.abspath(__file__))
-    보일것 = [m for m in 메뉴목록
-            if not (현재 and m[0].split("/")[-1] == 현재)
-            and os.path.exists(os.path.join(뿌리, m[0]))]
-    if not 보일것:
+    return os.path.exists(os.path.join(_뿌리, 경로))
+
+
+def 묶음_찾기(현재파일: str):
+    """이 파일이 속한 (묶음 이름, 페이지들). 없으면 (None, [])."""
+    현재 = (현재파일 or "").replace("\\", "/").split("/")[-1]
+    for 이름, 묶음 in 메뉴묶음:
+        if any(m[0].split("/")[-1] == 현재 for m in 묶음):
+            return 이름, 묶음
+    return None, []
+
+
+def 페이지_메뉴(현재파일: str = ""):
+    """페이지 맨 위에 **같은 묶음** 페이지와 홈을 알약 한 줄로 깝니다.
+
+    ★ 예전에는 12개를 4칸씩 3줄로 깔아서 화면 위를 꽤 차지했습니다.
+      이제 사이드바가 묶음별로 나뉘었으니, 여기는 '옆 페이지로 바로 가기'
+      만 합니다. 다른 묶음은 홈을 거쳐 갑니다(휴대폰에서 사이드바를 못 열
+      때도 홈 → 원하는 페이지로 두 번이면 갑니다).
+    """
+    현재 = (현재파일 or "").replace("\\", "/").split("/")[-1]
+    _, 묶음 = 묶음_찾기(현재파일)
+    보일것 = [홈페이지] + [m for m in 묶음 if m[0].split("/")[-1] != 현재]
+    보일것 = [m for m in 보일것 if _있나(m[0])]
+    if len(보일것) <= 1 and not 묶음:
         return
-    st.markdown('<div class="navrow">', unsafe_allow_html=True)
-    한줄 = 4
-    for i in range(0, len(보일것), 한줄):
-        묶음 = 보일것[i:i + 한줄]
-        cols = st.columns(len(묶음))
-        for col, (경로, 아이콘, 이름) in zip(cols, 묶음):
-            with col:
-                st.page_link(경로, label=f"{아이콘} {이름}")
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(key="navrow", horizontal=True, gap="small"):
+        for 경로, 아이콘, 이름, *_ in 보일것:
+            st.page_link(경로, label=f"{아이콘} {이름}")
+
+
+def 네비게이션():
+    """Home.py 가 부르는 사이드바 묶음 — st.navigation 에 넘길 dict."""
+    구성 = {"": [st.Page(홈페이지[0], title=홈페이지[2], icon=홈페이지[1],
+                        default=True)]}
+    for 이름, 묶음 in 메뉴묶음:
+        페이지들 = [st.Page(m[0], title=m[2], icon=m[1]) for m in 묶음 if _있나(m[0])]
+        if 페이지들:
+            구성[이름] = 페이지들
+    return 구성
 
 
 # ==========================================================================

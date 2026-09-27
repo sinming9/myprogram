@@ -102,19 +102,23 @@ streamlit run Home.py
     self_check.py                - 자동 점검 (브리핑 보내기 전에 매번 실행)
   .github/workflows/
     morning-brief.yml            - 매일 아침 7시쯤 환율+자산 브리핑
+  Home.py                        - 시작 파일 · 사이드바 묶음 (메뉴는 ui.py 의 메뉴묶음)
   pages/
+    0_🗂️_홈.py                   - 첫 화면
     1_🏦_대출_상환_계산기.py
     2_💱_환전_타이밍.py
-    3_🏠_재산세_종부세.py
+    3_🏠_부동산_세금.py          - 재산세·종부세 / 양도세 (views/ 를 골라 실행)
     4_💰_연봉_급여_관리.py
     5_🥚_금리_사이클.py
-    6_🏷️_양도세_계산기.py
     7_📊_자산배분.py
     7_💎_순자산.py
     7_🔮_미래_자산.py
     7_🧓_연금.py
     8_📥_자료_가져오기.py
     9_➕_내_프로그램.py
+  views/
+    재산세_종부세.py             - 부동산 세금 페이지가 불러서 실행
+    양도세.py
   data/                          - 저장된 자료 (git 제외)
     loan_settings.json
     property_tax.json
