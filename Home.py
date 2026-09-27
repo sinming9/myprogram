@@ -3,7 +3,7 @@
 개인 대시보드 - 시작 파일 (사이드바 묶음)
 ==========================================================================
 이 파일은 **사이드바를 묶음별로 나누는 일만** 합니다. 첫 화면 내용은
-pages/0_🗂️_홈.py 에 있습니다.
+pages/0_홈.py 에 있습니다.
 
 [왜 이렇게 나눴나]
   pages/ 폴더만 두면 Streamlit 이 파일 이름 순서대로 한 줄로 늘어놓아서
@@ -34,8 +34,21 @@ from auth import _세션_유효한가  # noqa: E402
 # (어느 페이지로 가든 로그인 화면이 먼저 나오지만, 목록조차 안 보이는 편이
 #  깔끔합니다. 로그인하면 바로 다시 그려져 목록이 나타납니다.)
 로그인됨 = _세션_유효한가()
-페이지 = st.navigation(ui.네비게이션(),
-                    position="sidebar" if 로그인됨 else "hidden")
+
+# ★ ui.py 가 예전 것(네비게이션 함수가 없는 판)이면 앱 전체가 AttributeError
+#   로 멈췄습니다(GitHub 에 Home.py 만 먼저 올라갔을 때 실제로 그랬습니다).
+#   그럴 땐 pages/ 폴더 파일로 기본 메뉴를 만들어 띄우고 안내만 합니다.
+if hasattr(ui, "네비게이션"):
+    구성 = ui.네비게이션()
+else:
+    st.warning("**ui.py 가 예전 버전입니다.** GitHub 에 새 ui.py 를 올리면 "
+               "메뉴가 묶음별로 정리됩니다. 지금은 기본 메뉴로 보여 드립니다.",
+               icon="🔧")
+    폴더 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pages")
+    구성 = [st.Page(os.path.join("pages", f)) for f in sorted(os.listdir(폴더))
+          if f.endswith(".py")]
+
+페이지 = st.navigation(구성, position="sidebar" if 로그인됨 else "hidden")
 페이지.run()
 
 # ★ 로그인은 페이지 안(require_login)에서 일어납니다. 이번 실행에서 막

@@ -104,7 +104,7 @@ streamlit run Home.py
     morning-brief.yml            - 매일 아침 7시쯤 환율+자산 브리핑
   Home.py                        - 시작 파일 · 사이드바 묶음 (메뉴는 ui.py 의 메뉴묶음)
   pages/
-    0_🗂️_홈.py                   - 첫 화면
+    0_홈.py                      - 첫 화면
     1_🏦_대출_상환_계산기.py
     2_💱_환전_타이밍.py
     3_🏠_부동산_세금.py          - 재산세·종부세 / 양도세 (views/ 를 골라 실행)
