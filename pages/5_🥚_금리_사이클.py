@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from datetime import date, datetime
 
 import pandas as pd
@@ -72,17 +73,61 @@ for 이름 in (("ECOS_API_KEY", "ecos_api_key") if 나라 == "KR"
             break
 
 
+class _조회실패(Exception):
+    pass
+
+
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
 def 이력_조회(나라, 키있음, 키, 추가):
-    return EC.이력_불러오기(나라, 키 if 키있음 else None, 추가)
+    결과 = EC.이력_불러오기(나라, 키 if 키있음 else None, 추가)
+    # ★ 실패는 캐시에 남기지 않습니다(예외는 캐시되지 않음). 예전에는 한 번
+    #   시간 초과가 나면 6시간 동안 '조회 실패' 가 그대로 떠 있었습니다.
+    if 결과[2]:
+        raise _조회실패(결과[2])
+    return 결과
 
 
 추가이력 = [(d, v) for d, v in 설정.get("추가이력", [])]
-with st.spinner("금리 이력을 불러오는 중이에요..."):
-    이력, 출처, 조회오류 = 이력_조회(나라, bool(api_key), api_key or "", tuple(추가이력))
+_보관키 = f"rate_cache_{나라}"
+_실패키 = f"_금리조회실패_{나라}"
+조회오류 = None
+# 방금(10분 안) 실패했으면 다시 두드리지 않습니다 — 버튼을 누를 때마다
+# 35초씩 기다리게 되기 때문입니다.
+if time.time() - st.session_state.get(_실패키, 0) > 600:
+    try:
+        with st.spinner("금리 이력을 불러오는 중이에요..."):
+            이력, 출처, _ = 이력_조회(나라, bool(api_key), api_key or "",
+                               tuple(추가이력))
+        # 성공한 값은 보관해 둡니다. 다음에 조회가 막혀도 이 값을 씁니다.
+        if 출처 != "내장 기본값":
+            새보관 = {"날짜": date.today().isoformat(),
+                    "이력": [[d.isoformat(), v] for d, v in 이력.points]}
+            if (storage.불러오기(_보관키, {}) or {}).get("날짜") != 새보관["날짜"]:
+                storage.저장하기(_보관키, 새보관)
+    except _조회실패 as e:
+        조회오류 = str(e)
+        st.session_state[_실패키] = time.time()
+else:
+    조회오류 = "잠시 전에 조회에 실패해 10분 동안 다시 시도하지 않습니다"
 
 if 조회오류:
-    st.warning(f"자동 조회에 실패해서 내장 기본값을 씁니다. ({조회오류})", icon="⚠️")
+    보관 = storage.불러오기(_보관키, None) or {}
+    if 보관.get("이력"):
+        점들 = [(date.fromisoformat(d), float(v)) for d, v in 보관["이력"]]
+        점들 += [(date.fromisoformat(str(d)[:10]) if isinstance(d, str) else d,
+                float(v)) for d, v in 추가이력]
+        if 점들 and max(p[0] for p in 점들) < date.today():
+            점들.append((date.today(), sorted(점들)[-1][1]))
+        이력 = EC.RateHistory(점들).sort()
+        출처 = f"지난 조회값 ({보관['날짜']})"
+        st.info(f"한국은행·연준 서버가 응답하지 않아 **{보관['날짜']} 에 받아 둔 "
+                f"값**으로 보여 드립니다. 기준금리는 자주 바뀌지 않아 대개 "
+                f"그대로 맞습니다. ({조회오류})", icon="ℹ️")
+    else:
+        이력 = EC.fallback_history(나라, 추가이력)
+        출처 = "내장 기본값"
+        st.warning(f"자동 조회에 실패해서 내장 기본값을 씁니다. ({조회오류})",
+                   icon="⚠️")
 
 수동금리 = 설정.get("manual_rate")
 if 수동금리 is not None:
