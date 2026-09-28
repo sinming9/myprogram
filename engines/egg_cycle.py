@@ -426,11 +426,21 @@ def fallback_history(country: str, 추가목록=None) -> RateHistory:
 def 이력_불러오기(country: str, api_key: Optional[str], 추가목록=None):
     """(RateHistory, 출처, 오류메시지) 반환. 실패해도 예외를 던지지 않습니다."""
     if api_key:
-        try:
-            if country == "KR":
-                return fetch_bok_base_rate(api_key), "ECOS (한국은행)", None
-            return fetch_fed_funds_upper(api_key), "FRED (세인트루이스 연준)", None
-        except Exception as e:  # noqa: BLE001
-            오류 = f"{type(e).__name__}: {e}"
-            return fallback_history(country, 추가목록), "내장 기본값", 오류
+        오류 = ""
+        # ★ Streamlit Cloud 서버는 미국에 있고, 한국은행 ECOS 는 해외 접속에
+        #   자주 느립니다(한국에서는 0.2초, 클라우드에서는 10초 초과). 한 번에
+        #   포기하지 않고 더 길게 한 번 더 기다립니다.
+        for 기다림 in (10, 25):
+            try:
+                if country == "KR":
+                    return (fetch_bok_base_rate(api_key, timeout=기다림),
+                            "ECOS (한국은행)", None)
+                return (fetch_fed_funds_upper(api_key, timeout=기다림),
+                        "FRED (세인트루이스 연준)", None)
+            except RateFetchError as e:           # 응답은 왔는데 자료가 없음
+                오류 = f"{type(e).__name__}: {e}"
+                break
+            except Exception as e:  # noqa: BLE001
+                오류 = f"{type(e).__name__}: {e}"
+        return fallback_history(country, 추가목록), "내장 기본값", 오류
     return fallback_history(country, 추가목록), "내장 기본값", None
