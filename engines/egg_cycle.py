@@ -393,6 +393,35 @@ def fetch_fed_funds_upper(api_key: str, years: int = 5, timeout: int = 10) -> Ra
     return RateHistory(pts).sort()
 
 
+def fetch_fed_funds_csv(years: int = 5, timeout: int = 15) -> RateHistory:
+    """FRED 공개 CSV — **키 없이** 받는 연방기금금리 상단(DFEDTARU).
+
+    ★ FRED 키가 없으면 예전에는 곧바로 내장 기본값을 썼는데, 그 값이
+      금리가 바뀐 뒤로 갱신되지 않아 틀린 금리(3.75%)가 나갔습니다.
+      그래프 내려받기용 CSV 는 키가 필요 없어서 이것부터 씁니다.
+    """
+    import urllib.request
+    start = date.today() - timedelta(days=365 * years)
+    url = ("https://fred.stlouisfed.org/graph/fredgraph.csv"
+           f"?id=DFEDTARU&cosd={start:%Y-%m-%d}")
+    # ★ 브라우저인 척('Mozilla/5.0') 하면 FRED 가 응답을 붙잡고 안 줍니다
+    #   (직접 재 보니 12초 초과, 평범한 이름은 0.0초).
+    요청 = urllib.request.Request(url, headers={"User-Agent": "personal-dashboard/1.0"})
+    with urllib.request.urlopen(요청, timeout=timeout) as resp:
+        글 = resp.read().decode("utf-8", "replace")
+    pts = []
+    for 줄 in 글.splitlines()[1:]:
+        칸 = 줄.split(",")
+        if len(칸) == 2 and 칸[1] not in (".", ""):
+            try:
+                pts.append((datetime.strptime(칸[0], "%Y-%m-%d").date(), float(칸[1])))
+            except ValueError:
+                continue
+    if not pts:
+        raise RateFetchError("FRED CSV 에 자료가 없습니다")
+    return RateHistory(pts).sort()
+
+
 # 조회 실패 시 쓰는 기본값.
 #  ※ 새 금리 결정이 나오면 아래 줄만 추가하면 됩니다. 화면에서도 직접 넣을 수 있습니다.
 FALLBACK_HISTORY: Dict[str, List[Tuple[str, float]]] = {
@@ -400,7 +429,9 @@ FALLBACK_HISTORY: Dict[str, List[Tuple[str, float]]] = {
            ("2025-02-25", 2.75), ("2025-05-29", 2.50), ("2026-07-16", 2.75)],
     "US": [("2023-07-27", 5.50), ("2024-09-19", 5.00), ("2024-11-08", 4.75),
            ("2024-12-19", 4.50), ("2025-09-18", 4.25), ("2025-10-29", 4.00),
-           ("2025-12-10", 3.75)],
+           ("2025-12-10", 3.75), ("2026-09-17", 4.00)],
+    # ↑ 2026-09-17 인상은 2026-09-28 FRED 자료로 확인했습니다.
+    #   조회가 되면 이 목록은 쓰이지 않습니다.
 }
 
 
@@ -438,6 +469,18 @@ def 이력_불러오기(country: str, api_key: Optional[str], 추가목록=None)
                 return (fetch_fed_funds_upper(api_key, timeout=기다림),
                         "FRED (세인트루이스 연준)", None)
             except RateFetchError as e:           # 응답은 왔는데 자료가 없음
+                오류 = f"{type(e).__name__}: {e}"
+                break
+            except Exception as e:  # noqa: BLE001
+                오류 = f"{type(e).__name__}: {e}"
+        return fallback_history(country, 추가목록), "내장 기본값", 오류
+    if country == "US":
+        # 키가 없어도 미국은 공개 CSV 로 받을 수 있습니다
+        오류 = ""
+        for 기다림 in (10, 25):
+            try:
+                return fetch_fed_funds_csv(timeout=기다림), "FRED 공개 자료", None
+            except RateFetchError as e:
                 오류 = f"{type(e).__name__}: {e}"
                 break
             except Exception as e:  # noqa: BLE001
