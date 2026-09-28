@@ -184,11 +184,17 @@ def 양도세_요약():
     }
 
 
-def 금리_요약():
+def 금리_요약(나라):
+    """나라 = "KR" / "US". 한국·미국 카드를 따로 만듭니다.
+
+    ★ 예전에는 금리 사이클 화면에서 고른 나라 하나만 보여서, 한국을 보고
+      있으면 미국 금리는 첫 화면에 없었습니다.
+    """
     from engines import egg_cycle as EC
     설정 = storage.불러오기("egg_cycle", {}) or {}
-    나라 = 설정.get("country", "KR")
-    추가 = [(d, v) for d, v in 설정.get("추가이력", [])]
+    # 직접 추가한 이력·수동 금리는 화면에서 고른 나라에만 해당합니다
+    내나라 = 설정.get("country", "KR") == 나라
+    추가 = [(d, v) for d, v in 설정.get("추가이력", [])] if 내나라 else []
     # ★ 첫 화면은 네트워크 조회를 하지 않으므로, 금리 사이클 페이지가 조회에
     #   성공할 때 저장해 둔 값(rate_cache_KR/US)을 씁니다. 예전에는 늘 내장
     #   기본값이라 페이지에서 새 금리를 받아도 여기 숫자는 그대로였습니다.
@@ -202,16 +208,18 @@ def 금리_요약():
         출처 = f"{보관.get('날짜', '')} 조회값"
     else:
         이력, 출처, _오류 = EC.이력_불러오기(나라, None, 추가)
-    수동 = 설정.get("manual_rate")
+    수동 = 설정.get("manual_rate") if 내나라 else None
     if 수동:
         이력 = EC.RateHistory(list(이력.points) + [(date.today(), float(수동))]).sort()
     상태 = EC.compute_state(이력, EC.CycleConfig(
-        country=나라, cycle_low=설정.get("cycle_low"),
-        cycle_high=설정.get("cycle_high"),
+        country=나라,
+        cycle_low=설정.get("cycle_low") if 내나라 else None,
+        cycle_high=설정.get("cycle_high") if 내나라 else None,
         lookback_years=int(설정.get("lookback_years", 3))), 출처)
     날짜, 값 = 이력.계단_시계열()
     return {
-        "이름": "🥚 금리 사이클", "경로": "pages/5_🥚_금리_사이클.py",
+        "이름": "🥚 한국 기준금리" if 나라 == "KR" else "🥚 미국 기준금리",
+        "경로": "pages/5_🥚_금리_사이클.py",
         "핵심": f"{상태.rate:.2f}%", "부제": f"{상태.phase.name} · {상태.phase.regime}",
         "그래프": ("기준금리", list(zip(날짜, 값))),
         "덧말": f"사이클 {상태.r * 100:.0f}% · {상태.phase.action} · {출처}",
@@ -259,7 +267,9 @@ def 자산배분_요약():
 if not 손님:
     with st.spinner("저장된 자료로 요약을 만드는 중이에요..."):
         for 이름, 함수 in [("대출", 대출_요약), ("자산배분", 자산배분_요약),
-                        ("금리", 금리_요약), ("재산세", 재산세_요약),
+                        ("금리(한국)", lambda: 금리_요약("KR")),
+                        ("금리(미국)", lambda: 금리_요약("US")),
+                        ("재산세", 재산세_요약),
                         ("연봉", 연봉_요약), ("양도세", 양도세_요약)]:
             _안전(이름, 함수)
 

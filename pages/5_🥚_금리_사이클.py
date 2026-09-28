@@ -61,16 +61,22 @@ storage.임시서버_안내()
               index=고른위치(["KR", "US"], 설정.get("country", "KR")))
 설정["country"] = 나라
 
-api_key = None
-for 이름 in (("ECOS_API_KEY", "ecos_api_key") if 나라 == "KR"
-            else ("FRED_API_KEY", "fred_api_key")):
-    try:
-        api_key = st.secrets[이름]
-        break
-    except Exception:  # noqa: BLE001
-        api_key = os.environ.get(이름.upper())
-        if api_key:
-            break
+def _키(나라):
+    """ECOS(한국)·FRED(미국) 키. secrets 의 대문자·소문자 이름 둘 다 봅니다."""
+    for 이름 in (("ECOS_API_KEY", "ecos_api_key") if 나라 == "KR"
+                else ("FRED_API_KEY", "fred_api_key")):
+        try:
+            값 = st.secrets[이름]
+            if 값:
+                return str(값)
+        except Exception:  # noqa: BLE001
+            pass
+        if os.environ.get(이름.upper()):
+            return os.environ[이름.upper()]
+    return None
+
+
+api_key = _키(나라)
 
 
 class _조회실패(Exception):
@@ -109,6 +115,25 @@ if time.time() - st.session_state.get(_실패키, 0) > 600:
         st.session_state[_실패키] = time.time()
 else:
     조회오류 = "잠시 전에 조회에 실패해 10분 동안 다시 시도하지 않습니다"
+
+# ---- 다른 나라도 받아 둡니다 (첫 화면에 한국·미국 카드가 둘 다 나오게) ----
+# 화면에는 고른 나라만 그리지만, 첫 화면은 네트워크를 쓰지 않고 여기서
+# 저장해 둔 값을 읽으므로 두 나라 모두 받아 둬야 합니다. 조용히 시도하고,
+# 실패해도 이 페이지에는 아무 말도 하지 않습니다(이미 캐시됨: 6시간).
+_다른 = "US" if 나라 == "KR" else "KR"
+_다른키 = _키(_다른)
+if (_다른키 or _다른 == "US") and \
+        time.time() - st.session_state.get(f"_금리조회실패_{_다른}", 0) > 600:
+    try:
+        _이력2, _출처2, _ = 이력_조회(_다른, bool(_다른키), _다른키 or "", ())
+        if _출처2 != "내장 기본값":
+            _새 = {"날짜": date.today().isoformat(),
+                  "이력": [[d.isoformat(), v] for d, v in _이력2.points]}
+            if (storage.불러오기(f"rate_cache_{_다른}", {}) or {}).get("날짜") \
+                    != _새["날짜"]:
+                storage.저장하기(f"rate_cache_{_다른}", _새)
+    except _조회실패:
+        st.session_state[f"_금리조회실패_{_다른}"] = time.time()
 
 if 조회오류:
     보관 = storage.불러오기(_보관키, None) or {}
