@@ -174,6 +174,7 @@ def 양도세_요약():
     r = CG.계산(입력)
     return {
         "이름": "🏷️ 양도세", "경로": "pages/3_🏠_부동산_세금.py",
+        "쿼리": {"항목": "양도세"},          # 부동산 세금 페이지의 양도세 쪽으로
         "핵심": ("비과세" if r.비과세인가 else ui.억(r.총세액)),
         "부제": f"양도가 {ui.억(입력.양도가액)} 기준",
         "막대": ([] if r.비과세인가
@@ -187,7 +188,20 @@ def 금리_요약():
     from engines import egg_cycle as EC
     설정 = storage.불러오기("egg_cycle", {}) or {}
     나라 = 설정.get("country", "KR")
-    이력, 출처, _오류 = EC.이력_불러오기(나라, None, ())
+    추가 = [(d, v) for d, v in 설정.get("추가이력", [])]
+    # ★ 첫 화면은 네트워크 조회를 하지 않으므로, 금리 사이클 페이지가 조회에
+    #   성공할 때 저장해 둔 값(rate_cache_KR/US)을 씁니다. 예전에는 늘 내장
+    #   기본값이라 페이지에서 새 금리를 받아도 여기 숫자는 그대로였습니다.
+    보관 = storage.불러오기(f"rate_cache_{나라}", None) or {}
+    if 보관.get("이력"):
+        점들 = [(date.fromisoformat(d), float(v)) for d, v in 보관["이력"]]
+        점들 += [(date.fromisoformat(str(d)[:10]), float(v)) for d, v in 추가]
+        if max(p[0] for p in 점들) < date.today():
+            점들.append((date.today(), sorted(점들)[-1][1]))
+        이력 = EC.RateHistory(점들).sort()
+        출처 = f"{보관.get('날짜', '')} 조회값"
+    else:
+        이력, 출처, _오류 = EC.이력_불러오기(나라, None, 추가)
     수동 = 설정.get("manual_rate")
     if 수동:
         이력 = EC.RateHistory(list(이력.points) + [(date.today(), float(수동))]).sort()
@@ -200,7 +214,7 @@ def 금리_요약():
         "이름": "🥚 금리 사이클", "경로": "pages/5_🥚_금리_사이클.py",
         "핵심": f"{상태.rate:.2f}%", "부제": f"{상태.phase.name} · {상태.phase.regime}",
         "그래프": ("기준금리", list(zip(날짜, 값))),
-        "덧말": f"사이클 {상태.r * 100:.0f}% · {상태.phase.action}",
+        "덧말": f"사이클 {상태.r * 100:.0f}% · {상태.phase.action} · {출처}",
     }
 
 
@@ -325,7 +339,8 @@ if 요약들:
                         ui.차트(fig, key=f"p_{item['이름']}")
 
                     st.caption(item.get("덧말", ""))
-                    st.page_link(item["경로"], label="자세히 보기", icon="➡️")
+                    st.page_link(item["경로"], label="자세히 보기", icon="➡️",
+                                 query_params=item.get("쿼리"))
 
     if 문제:
         with st.expander("요약을 만들지 못한 항목"):

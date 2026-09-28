@@ -47,9 +47,14 @@ st.title("🏠 부동산 세금")
 }
 
 # 주소의 ?항목= 으로 처음 고를 쪽을 정할 수 있습니다 (다른 페이지의 링크용)
-if "부동산세금_항목" not in st.session_state:
-    처음 = st.query_params.get("항목", "재산세")
-    st.session_state["부동산세금_항목"] = 처음 if 처음 in 항목들 else "재산세"
+# 링크로 들어올 때마다 주소의 항목을 따릅니다. 같은 접속에서 이미 이 페이지를
+# 본 뒤에도 홈의 '양도세' 카드를 누르면 양도세 쪽이 열려야 해서, 처음 한 번만이
+# 아니라 '주소가 바뀌었을 때' 반영합니다.
+_주소항목 = st.query_params.get("항목")
+if _주소항목 in 항목들 and _주소항목 != st.session_state.get("_부동산세금_주소"):
+    st.session_state["부동산세금_항목"] = _주소항목
+st.session_state["_부동산세금_주소"] = _주소항목
+st.session_state.setdefault("부동산세금_항목", "재산세")
 
 고른것 = st.segmented_control(
     "계산할 세금", list(항목들), format_func=lambda k: 항목들[k][0],
