@@ -109,8 +109,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      # matplotlib 와 나눔 글꼴은 토요일·1일 결산의 추이 그래프용입니다.
+      # 글꼴이 없으면 그래프의 한글이 네모로 깨집니다.
       - name: 패키지 설치
-        run: pip install -q pandas "finance-datareader>=0.9.90"
+        run: |
+          pip install -q pandas "finance-datareader>=0.9.90" matplotlib
+          sudo apt-get install -y -qq fonts-nanum > /dev/null || echo "::warning::한글 글꼴 설치 실패 — 그래프 글자는 영어로 나옵니다"
 
       # ★ import 단계에서 죽으면 스크립트 안의 오류 안내가 실행되기도 전이라
       #   Actions 화면에 "exit code 1" 만 남습니다(실제로 그런 적이 있습니다).
@@ -120,7 +124,7 @@ jobs:
           python - <<'PY'
           import sys
           try:
-              from engines import brief, fx, portfolio, telegram  # noqa: F401
+              from engines import brief, fx, portfolio, telegram, trend  # noqa: F401
           except Exception as e:
               print(f"::error::필요한 모듈을 불러오지 못했습니다 — "
                     f"{type(e).__name__}: {e}")
