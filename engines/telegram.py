@@ -104,6 +104,38 @@ def _http_오류(e) -> tuple:
     return f"텔레그램 응답 {e.code}. {안내} {속}".strip(), None
 
 
+def 사진_보내기(토큰, 채팅id, 사진: bytes, 설명="", 시간제한=30) -> tuple:
+    """PNG 한 장을 보냅니다. (성공, 설명)
+
+    결산 메시지 뒤에 붙이는 추이 그래프용입니다. 글 메시지와 달리 다시
+    시도하지 않습니다 — 그래프는 덤이라, 안 가도 브리핑은 이미 갔습니다.
+    """
+    if not 토큰 or not 채팅id or not 사진:
+        return False, "보낼 것이 없습니다."
+    경계 = "----briefboundary7f3a"
+    칸들 = [("chat_id", str(채팅id).strip()), ("caption", str(설명)[:1000]),
+          ("parse_mode", "HTML")]
+    몸 = b""
+    for 이름, 값 in 칸들:
+        몸 += (f"--{경계}\r\nContent-Disposition: form-data; name=\"{이름}\"\r\n\r\n"
+              f"{값}\r\n").encode("utf-8")
+    몸 += (f"--{경계}\r\nContent-Disposition: form-data; name=\"photo\"; "
+          f"filename=\"trend.png\"\r\nContent-Type: image/png\r\n\r\n").encode()
+    몸 += 사진 + f"\r\n--{경계}--\r\n".encode()
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{str(토큰).strip()}/sendPhoto",
+        data=몸, method="POST")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={경계}")
+    try:
+        with urllib.request.urlopen(req, timeout=시간제한) as resp:
+            결과 = json.loads(resp.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        return False, _http_오류(e)[0]
+    except Exception as e:                                   # noqa: BLE001
+        return False, f"{type(e).__name__}: {e}"
+    return bool(결과.get("ok")), str(결과.get("description") or "보냈습니다.")
+
+
 def 채팅찾기(토큰, 시간제한=15) -> tuple:
     """봇에게 말을 건 대화방 id 를 찾아 줍니다. (목록, 오류)
 
