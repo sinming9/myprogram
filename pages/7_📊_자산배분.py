@@ -286,7 +286,7 @@ st.markdown(
     f"연배당 {합계['연배당'] / 1e4:,.0f}만</span>",
     unsafe_allow_html=True)
 
-탭현황, 탭배당, 탭조정, 탭진단 = st.tabs(["현황", "배당", "조정", "진단"])
+탭현황, 탭추이, 탭배당, 탭조정, 탭진단 = st.tabs(["현황", "추이", "배당", "조정", "진단"])
 
 with 탭현황:
     # 요약
@@ -1102,6 +1102,100 @@ with 탭진단:
                 "배당이 바뀌었으면 표의 **주당배당(수동)** 에 직접 넣으세요.", icon="ℹ️")
 
     # ==========================================================================
+
+
+with 탭추이:
+    # ==========================================================================
+    # 자산 추이 — 아침 브리핑이 매일 남기는 기록으로 그립니다
+    # ==========================================================================
+    #  ★ 화면에서 시세를 다시 받지 않습니다. 매일 아침 시세로 계산해 Gist 에
+    #    남긴 값(portfolio_history)을 그대로 씁니다. 텔레그램 결산 그래프와
+    #    같은 계산(engines/trend.py)이라 두 곳 숫자가 같습니다.
+    from engines import trend as TR
+    st.subheader("📈 자산 추이")
+    _기록 = storage.불러오기("portfolio_history", None) or {}
+    _점 = TR.점들(_기록.get("스냅샷"))
+    if len(_점) < 2:
+        st.info("아침 브리핑 기록이 이틀 이상 쌓이면 여기에 그래프가 나옵니다. "
+                "브리핑이 매일 아침 오늘 값을 남깁니다.", icon="📝")
+    else:
+        _쌓인날 = TR.기록_일수(_점)
+        _기간 = st.segmented_control(
+            "기간", [n for n, _ in TR.기간들], default="1달",
+            key="자산_추이기간", label_visibility="collapsed") or "1달"
+        _일수 = dict(TR.기간들)[_기간]
+        _구간 = TR.구간(_점, _일수)
+        _요약 = TR.요약(_구간)
+        if _일수 > _쌓인날:
+            st.caption(f"기록은 {_점[0]['날짜']:%Y-%m-%d} 부터 {_쌓인날}일치입니다. "
+                       f"{_기간} 전체가 아니라 쌓인 만큼만 보여 드립니다.")
+        if _요약:
+            def _부호(v):
+                return "+" if v >= 0 else "-"
+            c1, c2, c3 = st.columns(3)
+            c1.metric("총 평가액", ui.억(_요약["평가액"]),
+                      f"{_부호(_요약['평가차'])}{ui.억(abs(_요약['평가차']))} "
+                      f"({_요약['평가차율']:+.2f}%)")
+            c2.metric("총 매입액(원금)", ui.억(_요약["원금"]),
+                      f"{_부호(_요약['원금차'])}{ui.억(abs(_요약['원금차']))}",
+                      delta_color="off")
+            if _요약["수익률"] is not None:
+                c3.metric("수익률", f"{_요약['수익률']:.2f}%",
+                          (f"{_요약['수익률차']:+.2f}%p"
+                           if _요약["수익률차"] is not None else None))
+            # 늘어난 것 중 '내가 넣은 돈' 과 '시장이 준 것' 을 가릅니다
+            st.caption(
+                f"{_요약['시작']:%m/%d} → {_요약['끝']:%m/%d} · 평가액 변화 "
+                f"{_부호(_요약['평가차'])}{ui.억(abs(_요약['평가차']))} = 넣은 돈 "
+                f"{_부호(_요약['원금차'])}{ui.억(abs(_요약['원금차']))} + 시장 "
+                f"{_부호(_요약['시장분'])}{ui.억(abs(_요약['시장분']))}")
+
+        _x = [p["날짜"] for p in _구간]
+        # 축은 '만원' 단위로 — 원 단위로 두면 200,000,000 처럼 0 이 너무 깁니다
+        _평 = [p["평가액"] / 1e4 for p in _구간]
+        _원 = [p["원금"] / 1e4 for p in _구간]
+        그림 = go.Figure()
+        그림.add_trace(go.Scatter(
+            x=_x, y=_평, name="총 평가액",
+            mode="lines+markers" if len(_구간) <= 40 else "lines",
+            line=dict(color="#2B6ED5", width=2.4), fill="tozeroy",
+            fillcolor="rgba(43,110,213,.08)",
+            hovertemplate="%{x|%Y-%m-%d}<br>평가 %{y:,.0f}만원<extra></extra>"))
+        그림.add_trace(go.Scatter(
+            x=_x, y=_원, name="총 매입액",
+            mode="lines", line=dict(color="#8E8E8E", width=1.6, dash="dot"),
+            hovertemplate="%{x|%Y-%m-%d}<br>매입 %{y:,.0f}만원<extra></extra>"))
+        _낮, _높 = min(_평 + _원), max(_평 + _원)
+        _여유 = max((_높 - _낮) * 0.15, _높 * 0.01)
+        그림.update_layout(
+            height=300, margin=dict(l=10, r=10, t=10, b=10),
+            legend=dict(orientation="h", y=1.08, x=0),
+            yaxis=dict(range=[_낮 - _여유, _높 + _여유], tickformat=",.0f",
+                       ticksuffix="만"),
+            hovermode="x unified")
+        ui.차트(그림, key="자산_추이_금액")
+
+        _수 = [p for p in _구간 if p["수익률"] is not None]
+        if len(_수) >= 2:
+            그림2 = go.Figure(go.Scatter(
+                x=[p["날짜"] for p in _수], y=[p["수익률"] for p in _수],
+                mode="lines", line=dict(color="#18A57A", width=2),
+                hovertemplate="%{x|%Y-%m-%d}<br>수익률 %{y:.2f}%<extra></extra>"))
+            그림2.add_hline(y=0, line_color="rgba(140,140,140,.6)")
+            그림2.update_layout(height=170, margin=dict(l=10, r=10, t=10, b=10),
+                              yaxis=dict(ticksuffix="%"))
+            ui.차트(그림2, key="자산_추이_수익률")
+
+        with st.expander("날짜별 표"):
+            st.dataframe(pd.DataFrame([{
+                "날짜": p["날짜"].isoformat(),
+                "총 매입 금액": round(p["원금"]),
+                "총 평가 금액": round(p["평가액"]),
+                "수익률(%)": round(p["수익률"], 2) if p["수익률"] is not None else None,
+            } for p in reversed(_구간)]).style.format(
+                {"총 매입 금액": "{:,}원", "총 평가 금액": "{:,}원",
+                 "수익률(%)": "{:+.2f}%"}, na_rep="-"),
+                width="stretch", hide_index=True)
 
 
 st.divider()
