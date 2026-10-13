@@ -208,11 +208,15 @@ st.session_state.setdefault("순자산_기록버전", 0)
 
 def _표원본_바꾸기(행들):
     st.session_state["순자산_표원본"] = [dict(r) for r in (행들 or [])]
+    # '마지막으로 본 표' 도 같이 바꿉니다. 안 그러면 아래 _돌아왔으면_최신으로
+    # 가 방금 불러온 값을 예전 화면 값으로 덮어씁니다.
+    st.session_state["순자산_표최신"] = [dict(r) for r in (행들 or [])]
     st.session_state["순자산_표버전"] += 1
 
 
 def _기록원본_바꾸기(기록들):
     st.session_state["순자산_기록원본"] = [dict(r) for r in (기록들 or [])]
+    st.session_state["순자산_기록최신"] = [dict(r) for r in (기록들 or [])]
     st.session_state["순자산_기록버전"] += 1
 
 
@@ -229,11 +233,35 @@ def _설정_적용(데이터):
 설정 = st.session_state["순자산_설정"]
 
 # 원본을 아직 안 담았으면(첫 방문) 저장된 값으로 한 번 담습니다.
+#  ★ 빈 표도 '빈 표' 로 둡니다. 예전에는 [] 를 '자료 없음' 으로 보고 예시
+#    줄을 채워서, 줄을 전부 지우고 저장해도 다시 열면 예시가 돌아왔습니다.
+#    처음 쓰는 분의 예시 줄은 _설정_정리 가 이미 넣어 줍니다.
 if "순자산_표원본" not in st.session_state:
-    st.session_state["순자산_표원본"] = [
-        dict(r) for r in (설정.get("자산표") or NW.기본_자산표())]
+    st.session_state["순자산_표원본"] = [dict(r) for r in (설정.get("자산표") or [])]
 if "순자산_기록원본" not in st.session_state:
     st.session_state["순자산_기록원본"] = [dict(r) for r in (설정.get("기록") or [])]
+
+
+def _돌아왔으면_최신으로(표이름):
+    """다른 페이지에 다녀왔으면, 원본을 '마지막으로 본 표' 로 바꿉니다.
+
+    ★ 원본을 고정해 두는 방식(위 설명)에는 빈틈이 있었습니다. 지운 줄은
+      표 위젯의 '편집 기록' 에만 남는데, 다른 페이지에 갔다 오면 Streamlit
+      이 그 기록을 버립니다. 그러면 처음 원본으로 다시 그려져서 지우고
+      저장한 줄이 되살아나 보였습니다(저장된 값은 맞는데 화면이 옛 것).
+      위젯이 사라졌는데 마지막으로 본 표가 있으면 그걸 새 원본으로 씁니다.
+    """
+    버전키 = f"순자산_{표이름}버전"
+    위젯키 = (f"순자산_자산표_{st.session_state[버전키]}" if 표이름 == "표"
+            else f"순자산_기록_{st.session_state[버전키]}")
+    최신 = st.session_state.get(f"순자산_{표이름}최신")
+    if 위젯키 not in st.session_state and 최신 is not None:
+        st.session_state[f"순자산_{표이름}원본"] = [dict(r) for r in 최신]
+        st.session_state[버전키] += 1
+
+
+_돌아왔으면_최신으로("표")
+_돌아왔으면_최신으로("기록")
 
 storage.임시서버_안내()
 
@@ -277,7 +305,7 @@ if 바뀐것 is not None:
         "내 지분(%)": "number", "만기일": "date", "메모": "text"}
 # ★ 원본은 세션에 고정된 것을 씁니다. 편집 결과(설정["자산표"])를 여기에
 #   넣으면 편집내역이 두 번 적용되어 줄이 사라집니다. 위 설명 참고.
-기준표 = 표만들기(st.session_state["순자산_표원본"] or NW.기본_자산표(), 열정의)
+기준표 = 표만들기(st.session_state["순자산_표원본"], 열정의)
 
 편집표 = st.data_editor(
     기준표, num_rows="dynamic", width="stretch",
@@ -321,6 +349,8 @@ for _, row in 편집표.iterrows():
         "메모": str(row.get("메모") or ""),
     })
 설정["자산표"] = 새행들
+# 다른 페이지에 다녀와도 지금 모습이 이어지도록 (위 _돌아왔으면_최신으로)
+st.session_state["순자산_표최신"] = [dict(r) for r in 새행들]
 
 집계 = NW.표_집계(새행들)
 개인, 가족, 가구 = 집계["개인"], 집계["가족"], 집계["가구"]
@@ -671,6 +701,7 @@ with 탭추이:
             "메모": str(row.get("메모") or ""),
         })
     설정["기록"] = 읽은기록
+    st.session_state["순자산_기록최신"] = [dict(r) for r in 읽은기록]
 
     # 고른 기준으로 추이를 계산합니다. 개인 기준을 골랐는데 '내 몫' 이
     # 비어 있는 줄은 쓸 수 없으므로 빼고 셉니다.
