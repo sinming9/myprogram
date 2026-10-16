@@ -424,29 +424,63 @@ _외화df = _외화표("외화", {"통화": "text", "보유수량": "number",
              for _, r in _외화df.iterrows() if str(r.get("통화") or "").strip()]
 
 ui.섹션("✈️ 여행 환전", "여행 경비로 모으는 외화입니다. **목표·환전한 금액은 그 나라 "
-                  "돈**으로, 평균 환전율은 위와 같은 단위로. 여행이 끝나면 '사용' 을 "
-                  "끄거나 줄을 지우세요.", 라벨="여행")
+                  "돈**으로, **쓴 원화**는 환전하느라 낸 원화 합계로 넣으세요. 평균 "
+                  "환전율은 자동으로 계산됩니다. 환전할 때마다 두 합계만 늘려 적으면 "
+                  "됩니다. 여행이 끝나면 '사용' 을 끄거나 줄을 지우세요.", 라벨="여행")
 st.caption("⚠️ 같은 돈을 위 '외화 보유' 에도 넣으면 두 번 세어집니다. 한쪽에만 넣으세요.")
+# ★ 평균 환전율은 직접 넣지 않고 '쓴 원화 ÷ 받은 외화' 로 계산합니다.
+#   환전할 때마다 평균을 다시 계산해 넣는 건 번거롭고 틀리기 쉽습니다.
+#   두 합계만 늘려 적으면 평균은 저절로 맞습니다.
+_화면단위 = {"JPY": 100}            # 엔은 100엔당, 나머지는 1단위당 (환율 화면과 같게)
 _여행df = _외화표("여행", {"사용": "bool", "여행명": "text", "통화": "text",
                        "목표금액": "number", "환전한금액": "number",
-                       "평균환전율": "number"}, {
+                       "쓴원화": "number"}, {
     "사용": st.column_config.CheckboxColumn(default=True, width="small"),
     "여행명": st.column_config.TextColumn(required=True),
     "통화": st.column_config.SelectboxColumn(options=_통화목록, required=True),
-    "목표금액": st.column_config.NumberColumn("목표 금액", min_value=0,
-                                           format="localized"),
-    "환전한금액": st.column_config.NumberColumn("환전한 금액", min_value=0,
-                                            format="localized"),
-    "평균환전율": st.column_config.NumberColumn("평균 환전율", min_value=0,
-                                            format="%.2f"),
+    "목표금액": st.column_config.NumberColumn(
+        "목표 금액(외화)", min_value=0, format="localized",
+        help="모으려는 외화 금액 (예: SGD 2,000)"),
+    "환전한금액": st.column_config.NumberColumn(
+        "환전한 금액(외화)", min_value=0, format="localized",
+        help="지금까지 받은 외화 합계"),
+    "쓴원화": st.column_config.NumberColumn(
+        "환전에 쓴 원화", min_value=0, step=10_000, format="localized",
+        help="지금까지 환전하느라 낸 원화 합계 (수수료 포함하면 실제 평균이 나옵니다)"),
 })
-설정["여행"] = [{"사용": bool(r.get("사용")) if r.get("사용") is not None else True,
-              "여행명": str(r.get("여행명") or "").strip(),
-              "통화": str(r.get("통화") or "").strip().upper(),
-              "목표금액": 숫자로(r.get("목표금액"), 0.0),
-              "환전한금액": 숫자로(r.get("환전한금액"), 0.0),
-              "평균환전율": 숫자로(r.get("평균환전율"), 0.0)}
-             for _, r in _여행df.iterrows() if str(r.get("통화") or "").strip()]
+
+
+def _평균환전율(통화, 외화, 원화, 예전값=0.0):
+    """쓴 원화 ÷ 받은 외화 (엔은 100엔당). 쓴 원화가 없으면 예전에 넣은 평균."""
+    if 외화 > 0 and 원화 > 0:
+        return 원화 / 외화 * _화면단위.get(통화, 1)
+    return 예전값
+
+
+_예전평균 = {(r.get("여행명"), r.get("통화")): 숫자로(r.get("평균환전율"), 0.0)
+         for r in 설정.get("여행") or []}
+설정["여행"] = []
+for _, r in _여행df.iterrows():
+    통화 = str(r.get("통화") or "").strip().upper()
+    if not 통화:
+        continue
+    이름 = str(r.get("여행명") or "").strip()
+    외화, 원화 = 숫자로(r.get("환전한금액"), 0.0), 숫자로(r.get("쓴원화"), 0.0)
+    설정["여행"].append({
+        "사용": bool(r.get("사용")) if r.get("사용") is not None else True,
+        "여행명": 이름, "통화": 통화,
+        "목표금액": 숫자로(r.get("목표금액"), 0.0),
+        "환전한금액": 외화, "쓴원화": 원화,
+        # 브리핑은 이 값을 읽습니다 — 저장할 때 계산해서 같이 남깁니다
+        "평균환전율": _평균환전율(통화, 외화, 원화, _예전평균.get((이름, 통화), 0.0)),
+    })
+for t in 설정["여행"]:
+    if t["평균환전율"] > 0:
+        단위 = "100엔당 " if t["통화"] == "JPY" else ""
+        st.caption(f"✈️ {t['여행명'] or t['통화']} — 평균 환전율 **{단위}"
+                   f"{t['평균환전율']:,.2f}원** "
+                   + (f"(원화 {t['쓴원화']:,.0f} ÷ {t['통화']} {t['환전한금액']:,.0f})"
+                      if t["쓴원화"] > 0 else "(예전에 직접 넣은 값)"))
 설정["여행_순자산포함"] = st.checkbox(
     "여행 환전 금액도 순자산에 넣기", value=bool(설정.get("여행_순자산포함")),
     key="순자산_여행포함", help="끄면 진행률만 보고 순자산에는 넣지 않습니다.")
