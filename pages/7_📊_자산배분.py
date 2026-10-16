@@ -41,6 +41,10 @@ st.caption("한국·미국 주식과 ETF 를 계좌별로 모아서 봅니다")
 st.session_state.setdefault("자산_종목", [dict(r) for r in 기본종목])
 st.session_state.setdefault("자산_목표", {})
 st.session_state.setdefault("자산_ISA", {})
+st.session_state.setdefault("자산_외화", [])
+st.session_state.setdefault("자산_여행", [])
+st.session_state.setdefault("자산_여행포함", False)
+st.session_state.setdefault("자산_외화표버전", 0)
 st.session_state.setdefault("자산_표버전", 0)
 
 if not st.session_state.get("_자산_자동로드"):
@@ -50,6 +54,9 @@ if not st.session_state.get("_자산_자동로드"):
         st.session_state["자산_종목"] = 저장된["종목"]
         st.session_state["자산_목표"] = 저장된.get("목표") or {}
         st.session_state["자산_ISA"] = 저장된.get("ISA") or {}
+        st.session_state["자산_외화"] = 저장된.get("외화") or []
+        st.session_state["자산_여행"] = 저장된.get("여행") or []
+        st.session_state["자산_여행포함"] = bool(저장된.get("여행_순자산포함"))
         # ★ 목표 기준(자산군/계좌/시장)과 리밸런싱 대상 계좌도 되살립니다.
         #   예전에는 이 둘이 저장되지 않아서, 앱을 다시 열 때마다
         #   기준이 "자산군" 으로, 대상 계좌가 기본값으로 돌아갔습니다.
@@ -67,6 +74,10 @@ def _설정_적용(데이터):
         st.session_state["자산_종목"] = 데이터["종목"]
         st.session_state["자산_목표"] = 데이터.get("목표") or {}
         st.session_state["자산_ISA"] = 데이터.get("ISA") or {}
+        st.session_state["자산_외화"] = 데이터.get("외화") or []
+        st.session_state["자산_여행"] = 데이터.get("여행") or []
+        st.session_state["자산_여행포함"] = bool(데이터.get("여행_순자산포함"))
+        st.session_state["자산_외화표버전"] += 1
         # ISA 납입 이력 표도 원본을 새로 담고 표를 다시 만듭니다
         st.session_state["자산_ISA이력원본"] = [
             dict(r) for r in ((데이터.get("ISA") or {}).get("납입이력") or [])]
@@ -180,12 +191,33 @@ for 순번, (_, row) in enumerate(종목df.iterrows(), start=1):
 for m in 문제:
     st.warning(m, icon="⚠️")
 
+def _저장묶음():
+    """저장할 묶음 — 페이지 아래 저장과 '종목 없음' 일 때의 저장이 같이 씁니다.
+
+    ★ 예전에는 종목이 없을 때의 저장이 목표·ISA 만 넣어서, 그 화면에서
+      저장하면 목표기준·대상 계좌가 지워졌습니다. 한 곳에서 만듭니다.
+    """
+    return {
+        "종목": 읽은목록,
+        "목표": st.session_state.get("자산_목표", {}),
+        # ★ 목표를 '무슨 기준으로' 넣었는지와 '어느 계좌를 대상으로'
+        #   맞추는지도 함께 저장합니다. 이 둘이 없으면 앱을 다시 열
+        #   때마다 자산군·기본계좌로 돌아가고, 아침 브리핑이 계산한
+        #   숫자와 화면 숫자가 서로 달라집니다.
+        "목표기준": (st.session_state.get("자산_목표_입력기준")
+                 or PF.목표기준_추측(st.session_state.get("자산_목표", {}))),
+        "조정계좌": st.session_state.get("자산_조정계좌") or [],
+        "ISA": st.session_state.get("자산_ISA", {}),
+        # 외화 보유·여행 환전 — 아침 브리핑이 읽습니다 (외화·여행 탭)
+        "외화": st.session_state.get("자산_외화") or [],
+        "여행": st.session_state.get("자산_여행") or [],
+        "여행_순자산포함": bool(st.session_state.get("자산_여행포함")),
+    }
+
+
 if not 읽은목록:
     st.info("보유 종목을 한 줄 이상 입력해 주세요.", icon="📝")
-    저장_불러오기(저장키, {"종목": 읽은목록,
-                      "목표": st.session_state.get("자산_목표", {}),
-                      "ISA": st.session_state.get("자산_ISA", {})},
-              "자산배분", "_자산_적용대기")
+    저장_불러오기(저장키, _저장묶음(), "자산배분", "_자산_적용대기")
     st.stop()
 
 # ==========================================================================
@@ -287,6 +319,9 @@ st.markdown(
     unsafe_allow_html=True)
 
 탭현황, 탭추이, 탭배당, 탭조정, 탭진단 = st.tabs(["현황", "추이", "배당", "조정", "진단"])
+# 외화 보유·여행 환전 입력은 💎 순자산 페이지로 옮겼습니다 (순자산 합계에 들어가는
+# 돈이라 그쪽이 맞습니다). 여기서 예전에 넣은 값은 저장할 때 그대로 실어 보내고,
+# 순자산 페이지가 처음 열릴 때 가져갑니다.
 
 with 탭현황:
     # 요약
@@ -1199,16 +1234,5 @@ with 탭추이:
 
 
 st.divider()
-저장_불러오기(저장키,
-          {"종목": 읽은목록,
-           "목표": st.session_state.get("자산_목표", {}),
-           # ★ 목표를 '무슨 기준으로' 넣었는지와 '어느 계좌를 대상으로'
-           #   맞추는지도 함께 저장합니다. 이 둘이 없으면 앱을 다시 열
-           #   때마다 자산군·기본계좌로 돌아가고, 아침 브리핑이 계산한
-           #   숫자와 화면 숫자가 서로 달라집니다.
-           "목표기준": (st.session_state.get("자산_목표_입력기준")
-                    or PF.목표기준_추측(st.session_state.get("자산_목표", {}))),
-           "조정계좌": st.session_state.get("자산_조정계좌") or [],
-           "ISA": st.session_state.get("자산_ISA", {})},
-          "자산배분", "_자산_적용대기",
-          도움말="종목·목표배분·ISA 정보가 함께 저장됩니다.")
+저장_불러오기(저장키, _저장묶음(), "자산배분", "_자산_적용대기",
+          도움말="종목·목표배분·ISA·외화·여행 정보가 함께 저장됩니다.")

@@ -55,6 +55,10 @@ st.caption(f"내 몫과 가족 몫을 나눠서 봅니다 · 비교 기준: "
     "형식": 0,
     "자산표": [],
     "기록": [],
+    # 외화 보유 · 여행 환전 (아침 브리핑도 이 값을 읽습니다)
+    "외화": [],
+    "여행": [],
+    "여행_순자산포함": False,
     "기록기준": "가구",
     # ↓ 예전 버전(배우자 자산을 숫자 한 칸으로 받던 때)의 키.
     #   자산표로 한 번 옮긴 뒤에도 남겨 둡니다. 지우면 예전 백업 파일을
@@ -179,7 +183,15 @@ def _설정_정리(불러온: dict) -> tuple:
 
 
 if "순자산_설정" not in st.session_state:
-    설정, 옮겼음 = _설정_정리(storage.불러오기(저장키, {}) or {})
+    _저장본 = storage.불러오기(저장키, {}) or {}
+    설정, 옮겼음 = _설정_정리(_저장본)
+    # ★ 외화·여행 입력은 처음에 자산배분 페이지에 있었습니다. 여기 아직 없으면
+    #   그쪽에 저장해 둔 값을 한 번 가져옵니다(저장을 누르면 여기로 옮겨짐).
+    if "외화" not in _저장본 and "여행" not in _저장본:
+        _자산배분 = storage.불러오기("portfolio", {}) or {}
+        for _키 in ("외화", "여행", "여행_순자산포함"):
+            if _자산배분.get(_키):
+                설정[_키] = _자산배분[_키]
     st.session_state["순자산_설정"] = 설정
     st.session_state["순자산_옮김안내"] = 옮겼음
 st.session_state.setdefault("순자산_표버전", 0)
@@ -224,9 +236,11 @@ def _설정_적용(데이터):
     새설정, 옮겼음 = _설정_정리(데이터 or {})
     st.session_state["순자산_설정"] = 새설정
     st.session_state["순자산_옮김안내"] = 옮겼음
-    # 파일을 불러오면 두 표의 원본이 모두 바뀝니다.
+    # 파일을 불러오면 표의 원본이 모두 바뀝니다 (외화·여행 표도 새로 그림)
     _표원본_바꾸기(새설정.get("자산표"))
     _기록원본_바꾸기(새설정.get("기록"))
+    st.session_state["순자산_외화표버전"] = (
+        st.session_state.get("순자산_외화표버전", 0) + 1)
 
 
 불러온것_적용("_순자산_적용대기", _설정_적용)
@@ -352,7 +366,120 @@ for _, row in 편집표.iterrows():
 # 다른 페이지에 다녀와도 지금 모습이 이어지도록 (위 _돌아왔으면_최신으로)
 st.session_state["순자산_표최신"] = [dict(r) for r in 새행들]
 
-집계 = NW.표_집계(새행들)
+
+# ==========================================================================
+# 외화 보유 · 여행 환전  (예전에는 자산배분 페이지에 있었습니다)
+# ==========================================================================
+#  · 외화 보유 — 순자산 합계에 넣습니다. 리밸런싱 비중에는 넣지 않습니다
+#    (리밸런싱은 자산배분의 '일반' 계좌 종목만 봅니다).
+#  · 여행 환전 — 아래 설정을 켰을 때만 순자산에 넣습니다. 리밸런싱에는 항상 빠집니다.
+#  · 아침 브리핑도 여기 저장된 값을 읽어서 수익률·진행률을 보여 줍니다.
+_통화목록 = ["JPY", "USD", "SGD", "EUR", "CNY"]
+_통화이름 = {"USD": "미국 달러 (USD)", "JPY": "일본 엔 (JPY)", "EUR": "유로 (EUR)",
+          "CNY": "중국 위안 (CNY)", "SGD": "싱가포르 달러 (SGD)"}
+st.session_state.setdefault("순자산_외화표버전", 0)
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _환율(코드):
+    """(화면 단위 환율, scale). 엔은 100엔당. 못 받으면 (None, 1)."""
+    from engines import fx as FX
+    cur = FX.CURRENCIES.get(_통화이름.get(코드, ""))
+    if not cur:
+        return None, 1
+    try:
+        자료, _, _ = FX.환율_가져오기(cur, years=1)
+        return float(자료["Close"].iloc[-1]), float(cur.get("scale") or 1)
+    except Exception:  # noqa: BLE001
+        return None, float(cur.get("scale") or 1)
+
+
+def _외화표(이름, 열정의, 열설정):
+    # ★ 표 원본은 위젯이 없을 때(처음·다른 페이지 다녀옴·파일 불러옴)만 최신
+    #   값으로 새로 담습니다. 위 자산·부채 표와 같은 이유입니다.
+    키 = f"순자산_{이름}표_{st.session_state['순자산_외화표버전']}"
+    if 키 not in st.session_state:
+        st.session_state[f"순자산_{이름}원본"] = [dict(r) for r in 설정.get(이름) or []]
+    return st.data_editor(표만들기(st.session_state[f"순자산_{이름}원본"], 열정의),
+                          num_rows="dynamic", width="stretch", key=키,
+                          column_config=열설정)
+
+
+ui.섹션("💴 외화 보유", "갖고 있는 외화를 넣으면 **오늘 환율로 원화 평가액**을 내서 "
+                  "순자산에 더합니다. **평균 매입 환율은 환율 화면 단위** — 엔은 "
+                  "**100엔당**(예: 860), 달러·싱달은 1단위당(예: 1,350).", 라벨="외화")
+_외화df = _외화표("외화", {"통화": "text", "보유수량": "number",
+                       "평균매입환율": "number"}, {
+    "통화": st.column_config.SelectboxColumn(options=_통화목록, required=True),
+    "보유수량": st.column_config.NumberColumn(
+        "보유 수량", min_value=0, step=10_000, format="localized",
+        help="그 나라 돈으로 몇 개인지 (예: 엔 500,000)"),
+    "평균매입환율": st.column_config.NumberColumn(
+        "평균 매입 환율", min_value=0, format="%.2f",
+        help="엔은 100엔당 원, 그 밖에는 1단위당 원"),
+})
+설정["외화"] = [{"통화": str(r.get("통화") or "").strip().upper(),
+              "보유수량": 숫자로(r.get("보유수량"), 0.0),
+              "평균매입환율": 숫자로(r.get("평균매입환율"), 0.0)}
+             for _, r in _외화df.iterrows() if str(r.get("통화") or "").strip()]
+
+ui.섹션("✈️ 여행 환전", "여행 경비로 모으는 외화입니다. **목표·환전한 금액은 그 나라 "
+                  "돈**으로, 평균 환전율은 위와 같은 단위로. 여행이 끝나면 '사용' 을 "
+                  "끄거나 줄을 지우세요.", 라벨="여행")
+st.caption("⚠️ 같은 돈을 위 '외화 보유' 에도 넣으면 두 번 세어집니다. 한쪽에만 넣으세요.")
+_여행df = _외화표("여행", {"사용": "bool", "여행명": "text", "통화": "text",
+                       "목표금액": "number", "환전한금액": "number",
+                       "평균환전율": "number"}, {
+    "사용": st.column_config.CheckboxColumn(default=True, width="small"),
+    "여행명": st.column_config.TextColumn(required=True),
+    "통화": st.column_config.SelectboxColumn(options=_통화목록, required=True),
+    "목표금액": st.column_config.NumberColumn("목표 금액", min_value=0,
+                                           format="localized"),
+    "환전한금액": st.column_config.NumberColumn("환전한 금액", min_value=0,
+                                            format="localized"),
+    "평균환전율": st.column_config.NumberColumn("평균 환전율", min_value=0,
+                                            format="%.2f"),
+})
+설정["여행"] = [{"사용": bool(r.get("사용")) if r.get("사용") is not None else True,
+              "여행명": str(r.get("여행명") or "").strip(),
+              "통화": str(r.get("통화") or "").strip().upper(),
+              "목표금액": 숫자로(r.get("목표금액"), 0.0),
+              "환전한금액": 숫자로(r.get("환전한금액"), 0.0),
+              "평균환전율": 숫자로(r.get("평균환전율"), 0.0)}
+             for _, r in _여행df.iterrows() if str(r.get("통화") or "").strip()]
+설정["여행_순자산포함"] = st.checkbox(
+    "여행 환전 금액도 순자산에 넣기", value=bool(설정.get("여행_순자산포함")),
+    key="순자산_여행포함", help="끄면 진행률만 보고 순자산에는 넣지 않습니다.")
+
+# 순자산 합계에 더할 줄 — 표에 저장하지 않고 계산에만 씁니다(본인 몫 현금성)
+외화행들, _못받음 = [], []
+for x in 설정["외화"]:
+    값, 단위 = _환율(x["통화"])
+    if 값 is None:
+        _못받음.append(x["통화"])
+        continue
+    외화행들.append({"구분": "현금성", "항목": f"외화 {x['통화']}",
+                  "금액": x["보유수량"] * 값 / 단위, "소유자": "본인",
+                  "내 지분(%)": None})
+if 설정["여행_순자산포함"]:
+    for t in 설정["여행"]:
+        if not t["사용"]:
+            continue
+        값, 단위 = _환율(t["통화"])
+        if 값 is None:
+            _못받음.append(t["통화"])
+            continue
+        외화행들.append({"구분": "현금성", "항목": f"여행 {t['여행명']}",
+                      "금액": t["환전한금액"] * 값 / 단위, "소유자": "본인",
+                      "내 지분(%)": None})
+if 외화행들:
+    st.caption("순자산에 더한 외화 — " + " · ".join(
+        f"{r['항목']} {ui.억(r['금액'])}" for r in 외화행들))
+if _못받음:
+    st.warning(f"환율을 받지 못해 순자산에 넣지 못한 통화: {', '.join(set(_못받음))}",
+               icon="⚠️")
+
+집계 = NW.표_집계(새행들 + 외화행들)
 개인, 가족, 가구 = 집계["개인"], 집계["가족"], 집계["가구"]
 
 if not 집계["쓴줄수"]:
