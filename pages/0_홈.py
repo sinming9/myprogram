@@ -11,19 +11,24 @@
  · 첫 화면은 빨라야 합니다. 그래서 **저장된 자료로 계산만 하고**
    시세·환율 같은 네트워크 조회는 하지 않습니다.
    (대출 상환표, 재산세, 연봉, 양도세는 모두 오프라인 계산입니다)
- · 시세가 필요한 것(환전·자산배분·금리)은 각 페이지를 한 번 열면
-   그 세션 동안 캐시가 살아 있어서 여기서도 즉시 보입니다.
-   캐시가 없으면 "열어보세요" 라고만 안내합니다.
- · 저장된 자료가 없는 프로그램은 카드만 보여줍니다.
+ · 시세가 필요한 것(자산배분·금리)은 아침 브리핑·각 페이지가 남긴
+   기록을 씁니다. 기록이 없으면 "열어보세요" 라고만 안내합니다.
+ · 저장된 자료가 없는 프로그램은 카드가 나오지 않습니다.
+
+[카드 모양] (화면 개선 1단계)
+ · 묶음마다 세 칸(st.columns(3))에 st.metric(border=True) 카드를 놓습니다.
+   큰 숫자 · 변화(있으면) · 작은 추이선 · "기준일 · 한 줄 해석" 순서.
+ · 큰 영역 그래프·막대·도넛은 첫 화면에서 뺐습니다. 자세한 그림은
+   각 페이지에 그대로 있습니다.
+ · 휴대폰에서는 카드가 한 줄에 하나씩 쌓입니다 (아래 _홈_스타일).
 ==========================================================================
 """
 
 import os
+import re
 import sys
 from datetime import date
 
-import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,25 +37,61 @@ import storage  # noqa: E402
 import ui  # noqa: E402
 from auth import require_login, 로그아웃_버튼  # noqa: E402
 
-require_login(page_title="개인 대시보드", page_icon="🗂️", layout="centered")
+require_login(page_title="개인 대시보드", page_icon="🗂️", layout="wide")
 ui.모바일_스타일()
 로그아웃_버튼()
 ui.테마_안내()
 storage.저장소_사이드바()
 
-st.title("🗂️ 개인 대시보드")
+st.title("개인 대시보드")
 storage.임시서버_안내()
 
 손님 = storage.손님인가()
 if 손님:
-    st.info("👤 Guest 모드에서는 저장된 자료를 불러오지 않습니다. "
+    st.info("Guest 모드에서는 저장된 자료를 불러오지 않습니다. "
             "요약 대신 프로그램 목록만 보여드립니다.", icon="👤")
 
 ui.페이지_메뉴(__file__)
 
+
+def 글자만(이름: str) -> str:
+    """'📈 시장' → '시장'. 이모지는 사이드바 메뉴에만 남깁니다."""
+    return re.sub(r"^[^\w가-힣]+", "", 이름).strip()
+
+
+def _md(d: date) -> str:
+    return f"{d.month}/{d.day}"
+
+
+def _날짜(v):
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+# 휴대폰에서 카드 한 줄에 하나씩.
+# ui.모바일_스타일() 은 모든 st.columns 를 휴대폰에서도 두 칸(46%)으로 묶어
+# 두므로, 첫 화면 카드 묶음(key="homegrid")만 한 칸으로 되돌립니다.
+st.markdown("""
+<style>
+@media (max-width: 640px) {
+  .st-key-homegrid [data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+    min-width: 100% !important; flex: 1 1 100% !important;
+  }
+}
+.st-key-homegrid [data-testid="stMetric"] { min-height: 100%; }
+</style>
+""", unsafe_allow_html=True)
+
 # ==========================================================================
 # 요약 모으기 (네트워크 없이, 저장된 자료로만)
 # ==========================================================================
+# 각 요약 함수가 돌려주는 모양:
+#   이름  카드 제목 (이모지 없이)        경로/쿼리  자세히 갈 페이지
+#   값    큰 숫자 (글자)                 변화      delta 글자 (없으면 None)
+#   변화색 "normal" / "inverse" / "off"   추이      작은 선에 쓸 숫자 목록
+#   기준  기준일 글자 ("10/21")          해석      한 줄 해석
 요약들 = []
 문제 = []
 
@@ -63,6 +104,44 @@ def _안전(이름, 함수):
             요약들.append(결과)
     except Exception as e:  # noqa: BLE001
         문제.append(f"{이름}: {type(e).__name__}")
+
+
+def _변화(지금, 전, 단위="억"):
+    """두 값의 차이를 delta 글자로. 비교할 값이 없으면 None."""
+    if 전 is None or 지금 is None:
+        return None
+    차 = 지금 - 전
+    if 차 == 0:
+        return None
+    if 단위 == "%p":
+        return f"{차:+.2f}%p"
+    글 = ui.억(abs(차)) if 단위 == "억" else ui.원(abs(차))
+    return ("+" if 차 > 0 else "-") + 글
+
+
+def 순자산_요약():
+    설정 = storage.불러오기("networth", None)
+    if not 설정:
+        return None
+    값열 = "순자산" if 설정.get("기록기준", "가구") == "가구" else "개인순자산"
+    기록 = []
+    for r in (설정.get("기록") or []):
+        d, v = _날짜(r.get("날짜")), r.get(값열)
+        if d and v not in (None, ""):
+            기록.append((d, float(v)))
+    if not 기록:
+        return None
+    기록.sort()
+    마지막날, 지금 = 기록[-1]
+    전 = 기록[-2][1] if len(기록) >= 2 else None
+    return {
+        "이름": "순자산", "경로": "pages/7_💎_순자산.py",
+        "값": ui.억(지금), "변화": _변화(지금, 전), "변화색": "normal",
+        "추이": [v for _, v in 기록][-24:],
+        "기준": _md(마지막날),
+        "해석": ("가구 합계" if 값열 == "순자산" else "내 몫")
+                + (f" · 기록 {len(기록)}개" if len(기록) >= 2 else " · 기록 수집 중"),
+    }
 
 
 def 대출_요약():
@@ -92,15 +171,19 @@ def 대출_요약():
         float(설정.get("수수료율", 0)), int(설정.get("면제기간_개월", 36)))
     s = 대출요약(결과)
     오늘 = date.today()
-    남은 = [r for r in 결과 if r["날짜"] >= 오늘 and r["구분"] == "정기납입"]
+    정기 = [r for r in 결과 if r["구분"] == "정기납입"]
+    남은 = [r for r in 정기 if r["날짜"] >= 오늘]
+    지난 = [r for r in 정기 if r["날짜"] < 오늘]
     잔액 = 남은[0]["잔액"] if 남은 else 0
     월납 = 남은[0]["납입액"] if 남은 else 0
+    # 1년 전(12회 전) 잔액과 비교 — 줄어들면 좋은 것이라 색은 반대로
+    일년전 = 지난[-12]["잔액"] if len(지난) >= 12 else (설정.get("원금") if 지난 else None)
     return {
-        "이름": "🏦 대출", "경로": "pages/1_🏦_대출_상환_계산기.py",
-        "핵심": ui.억(잔액), "부제": f"남은 {len(남은)}회 · 월 {월납 / 1e4:,.0f}만",
-        "그래프": ("잔액", [(r["날짜"], r["잔액"]) for r in 결과
-                       if r["구분"] == "정기납입"][::3]),
-        "덧말": f"총이자 {ui.억(s['총이자'])} · 완납 {s['완납일']}",
+        "이름": "대출 잔액", "경로": "pages/1_🏦_대출_상환_계산기.py",
+        "값": ui.억(잔액), "변화": _변화(잔액, 일년전), "변화색": "inverse",
+        "추이": [r["잔액"] for r in 정기][::3],
+        "기준": _md(오늘),
+        "해석": f"남은 {len(남은)}회 · 월 {월납 / 1e4:,.0f}만 · 완납 {s['완납일']}",
     }
 
 
@@ -123,12 +206,17 @@ def 재산세_요약():
                  HOLD_OPTIONS.get(자료.get("hold_key"), 0.0),
                  고지 if 고지 > 0 else None)
     연간 = r.july_total + r.sep_total + r.j_total
-    기록 = 자료.get("history") or []
+    기록 = sorted((자료.get("history") or []), key=lambda h: h.get("year", 0))
+    올해 = date.today().year
+    작년 = next((h["total"] for h in reversed(기록)
+               if int(h.get("year", 0)) < 올해 and h.get("total") is not None), None)
     return {
-        "이름": "🏠 재산세·종부세", "경로": "pages/3_🏠_부동산_세금.py",
-        "핵심": ui.원(연간), "부제": f"부동산 {len(목록)}건",
-        "막대": [("7월", r.july_total), ("9월", r.sep_total), ("12월", r.j_total)],
-        "덧말": (f"연도별 기록 {len(기록)}개" if 기록 else "연도별 기록을 남겨보세요"),
+        "이름": "재산세·종부세", "경로": "pages/3_🏠_부동산_세금.py",
+        "값": ui.원(연간), "변화": _변화(연간, 작년, "원"), "변화색": "inverse",
+        "추이": [h["total"] for h in 기록 if h.get("total") is not None],
+        "기준": f"{올해}년",
+        "해석": (f"부동산 {len(목록)}건 · 7월 {ui.억(r.july_total)} · "
+                 f"9월 {ui.억(r.sep_total)} · 12월 {ui.억(r.j_total)}"),
     }
 
 
@@ -143,12 +231,13 @@ def 연봉_요약():
     최근 = 기록[-1]
     목표, 목표율 = S.recommended_salary(기록)
     return {
-        "이름": "💰 연봉", "경로": "pages/4_💰_연봉_급여_관리.py",
-        "핵심": ui.원(최근["base_sal"]), "부제": f"{최근['year']}년 기준",
-        "그래프": ("연봉", [(date(r["year"], 12, 31), r["base_sal"]) for r in 기록]),
-        "덧말": ((f"인상률 {최근['raise']:+.2f}%" if 최근["raise"] is not None
-                else "비교 기준 없음")
-              + (f" · 내년 권장 {ui.억(목표)}" if 목표 else "")),
+        "이름": "연봉", "경로": "pages/4_💰_연봉_급여_관리.py",
+        "값": ui.원(최근["base_sal"]),
+        "변화": (f"{최근['raise']:+.2f}%" if 최근["raise"] is not None else None),
+        "변화색": "normal",
+        "추이": [r["base_sal"] for r in 기록],
+        "기준": f"{최근['year']}년",
+        "해석": (f"내년 권장 {ui.억(목표)}" if 목표 else "비교 기준 없음"),
     }
 
 
@@ -172,15 +261,15 @@ def 양도세_요약():
         기본공제확대=bool(설정.get("기본공제확대")),
         일시적2주택=bool(설정.get("일시적2주택")))
     r = CG.계산(입력)
+    # 양도세는 숫자만 (추이 없음)
     return {
-        "이름": "🏷️ 양도세", "경로": "pages/3_🏠_부동산_세금.py",
+        "이름": "양도세", "경로": "pages/3_🏠_부동산_세금.py",
         "쿼리": {"항목": "양도세"},          # 부동산 세금 페이지의 양도세 쪽으로
-        "핵심": ("비과세" if r.비과세인가 else ui.억(r.총세액)),
-        "부제": f"양도가 {ui.억(입력.양도가액)} 기준",
-        "막대": ([] if r.비과세인가
-               else [("실수령", r.실수령액), ("세금", r.총세액)]),
-        "덧말": (r.비과세사유[:40] if r.비과세인가
-              else f"차익의 {r.유효세율:.1f}% · 실수령 {ui.억(r.실수령액)}"),
+        "값": ("비과세" if r.비과세인가 else ui.억(r.총세액)),
+        "변화": None, "변화색": "off", "추이": None,
+        "기준": f"{입력.양도일.month}/{입력.양도일.day} 양도",
+        "해석": (r.비과세사유[:40] if r.비과세인가
+                 else f"차익의 {r.유효세율:.1f}% · 실수령 {ui.억(r.실수령액)}"),
     }
 
 
@@ -196,8 +285,7 @@ def 금리_요약(나라):
     내나라 = 설정.get("country", "KR") == 나라
     추가 = [(d, v) for d, v in 설정.get("추가이력", [])] if 내나라 else []
     # ★ 첫 화면은 네트워크 조회를 하지 않으므로, 금리 사이클 페이지가 조회에
-    #   성공할 때 저장해 둔 값(rate_cache_KR/US)을 씁니다. 예전에는 늘 내장
-    #   기본값이라 페이지에서 새 금리를 받아도 여기 숫자는 그대로였습니다.
+    #   성공할 때 저장해 둔 값(rate_cache_KR/US)을 씁니다.
     보관 = storage.불러오기(f"rate_cache_{나라}", None) or {}
     if 보관.get("이력"):
         점들 = [(date.fromisoformat(d), float(v)) for d, v in 보관["이력"]]
@@ -205,9 +293,10 @@ def 금리_요약(나라):
         if max(p[0] for p in 점들) < date.today():
             점들.append((date.today(), sorted(점들)[-1][1]))
         이력 = EC.RateHistory(점들).sort()
-        출처 = f"{보관.get('날짜', '')} 조회값"
+        기준날 = _날짜(보관.get("날짜")) or date.today()
     else:
-        이력, 출처, _오류 = EC.이력_불러오기(나라, None, 추가)
+        이력, _출처, _오류 = EC.이력_불러오기(나라, None, 추가)
+        기준날 = None
     수동 = 설정.get("manual_rate") if 내나라 else None
     if 수동:
         이력 = EC.RateHistory(list(이력.points) + [(date.today(), float(수동))]).sort()
@@ -215,14 +304,21 @@ def 금리_요약(나라):
         country=나라,
         cycle_low=설정.get("cycle_low") if 내나라 else None,
         cycle_high=설정.get("cycle_high") if 내나라 else None,
-        lookback_years=int(설정.get("lookback_years", 3))), 출처)
+        lookback_years=int(설정.get("lookback_years", 3))), "")
     날짜, 값 = 이력.계단_시계열()
+    # 직전에 금리가 바뀐 값과 비교
+    바뀐전 = next((v for v in reversed(값) if abs(v - 상태.rate) > 1e-9), None)
+    # 최근 3년만 작은 선으로
+    시작 = date(date.today().year - 3, date.today().month, 1)
+    최근값 = [v for d, v in zip(날짜, 값) if d >= 시작] or list(값)
     return {
-        "이름": "🥚 한국 기준금리" if 나라 == "KR" else "🥚 미국 기준금리",
+        "이름": "한국 기준금리" if 나라 == "KR" else "미국 기준금리",
         "경로": "pages/5_🥚_금리_사이클.py",
-        "핵심": f"{상태.rate:.2f}%", "부제": f"{상태.phase.name} · {상태.phase.regime}",
-        "그래프": ("기준금리", list(zip(날짜, 값))),
-        "덧말": f"사이클 {상태.r * 100:.0f}% · {상태.phase.action} · {출처}",
+        "값": f"{상태.rate:.2f}%", "변화": _변화(상태.rate, 바뀐전, "%p"),
+        "변화색": "off",
+        "추이": 최근값,
+        "기준": (_md(기준날) if 기준날 else "내장값"),
+        "해석": f"{상태.phase.name} · {상태.phase.action}",
     }
 
 
@@ -233,124 +329,93 @@ def 자산배분_요약():
     from engines import portfolio as PF
     # ★ 아침 브리핑이 매일 시세로 남긴 기록이 있으면 그 값을 씁니다.
     #   순자산·미래 자산·연금과 같은 함수라 네 곳이 같은 숫자를 봅니다.
-    계좌별, 출처 = PF.계좌별_평가(
-        자료["종목"], storage.불러오기("portfolio_history", None))
+    기록 = storage.불러오기("portfolio_history", None)
+    계좌별, 출처 = PF.계좌별_평가(자료["종목"], 기록)
     if 출처.startswith("아침 브리핑"):
+        # 추이: 스냅샷마다 '외화' 계좌를 뺀 합계 (계좌별_평가와 같은 기준)
+        점들 = []
+        for s in (기록 or {}).get("스냅샷") or []:
+            d = _날짜(s.get("날짜")) if isinstance(s, dict) else None
+            if d and isinstance(s.get("계좌"), dict):
+                점들.append((d, sum(float(v or 0) for k, v in s["계좌"].items()
+                                  if k != "외화")))
+        점들.sort()
+        지금 = sum(계좌별.values())
+        전 = 점들[-2][1] if len(점들) >= 2 else None
+        큰계좌 = max(계좌별.items(), key=lambda x: x[1])[0] if 계좌별 else ""
         return {
-            "이름": "📊 자산배분", "경로": "pages/7_📊_자산배분.py",
-            "핵심": ui.억(sum(계좌별.values())),
-            "부제": 출처,
-            "도넛": sorted(계좌별.items(), key=lambda x: -x[1]),
-            "덧말": "계좌별 비중 · 실시간 값은 페이지에서",
+            "이름": "투자자산", "경로": "pages/7_📊_자산배분.py",
+            "값": ui.억(지금), "변화": _변화(지금, 전), "변화색": "normal",
+            "추이": [v for _, v in 점들][-90:],
+            "기준": (_md(점들[-1][0]) if 점들 else "-"),
+            "해석": f"계좌 {len(계좌별)}개 · 가장 큰 곳 {큰계좌}",
         }
     수동만 = [x for x in 자료["종목"]
             if x.get("현재가(수동)") or x.get("평가액(직접입력)")]
     if not 수동만:
         return {
-            "이름": "📊 자산배분", "경로": "pages/7_📊_자산배분.py",
-            "핵심": f"{len(자료['종목'])}종목",
-            "부제": "시세를 받아야 평가액이 나옵니다",
-            "덧말": "페이지를 열면 시세를 조회합니다",
+            "이름": "투자자산", "경로": "pages/7_📊_자산배분.py",
+            "값": f"{len(자료['종목'])}종목", "변화": None, "변화색": "off",
+            "추이": None, "기준": "시세 없음",
+            "해석": "페이지를 열면 시세를 조회합니다",
         }
     종목들 = [PF.종목_계산(x, None, 1390.0) for x in 수동만]
     s = PF.요약(종목들)
-    묶 = PF.집계(종목들, "자산군")
     return {
-        "이름": "📊 자산배분", "경로": "pages/7_📊_자산배분.py",
-        "핵심": ui.억(s["평가액"]) + " 이상",
-        "부제": f"수동 입력분 {len(수동만)}/{len(자료['종목'])}종목만",
-        "도넛": [(g["이름"], g["평가액"]) for g in 묶],
-        "덧말": "정확한 값은 페이지를 열어 시세를 받아보세요",
+        "이름": "투자자산", "경로": "pages/7_📊_자산배분.py",
+        "값": ui.억(s["평가액"]) + " 이상", "변화": None, "변화색": "off",
+        "추이": None, "기준": "수동 입력분",
+        "해석": f"{len(수동만)}/{len(자료['종목'])}종목만 · 정확한 값은 페이지에서",
     }
 
 
 if not 손님:
     with st.spinner("저장된 자료로 요약을 만드는 중이에요..."):
-        for 이름, 함수 in [("대출", 대출_요약), ("자산배분", 자산배분_요약),
-                        ("금리(한국)", lambda: 금리_요약("KR")),
+        for 이름, 함수 in [("금리(한국)", lambda: 금리_요약("KR")),
                         ("금리(미국)", lambda: 금리_요약("US")),
-                        ("재산세", 재산세_요약),
-                        ("연봉", 연봉_요약), ("양도세", 양도세_요약)]:
+                        ("순자산", 순자산_요약), ("자산배분", 자산배분_요약),
+                        ("연봉", 연봉_요약),
+                        ("대출", 대출_요약), ("재산세", 재산세_요약),
+                        ("양도세", 양도세_요약)]:
             _안전(이름, 함수)
 
 # ==========================================================================
 # 요약 그리기
 # ==========================================================================
+
+
+def 카드(item):
+    """st.metric 카드 한 장 + 그 아래 작은 링크 하나."""
+    추이 = [float(v) for v in (item.get("추이") or []) if v is not None]
+    인자 = dict(label=item["이름"], value=item["값"], border=True,
+              delta=item.get("변화"),
+              delta_color=item.get("변화색", "normal"),
+              help=None)
+    if len(추이) >= 2:
+        인자.update(chart_data=추이, chart_type="line")
+    st.metric(**인자)
+    st.caption(f"{item['기준']} 기준 · {item['해석']}")
+    st.page_link(item["경로"], label="열기 →", query_params=item.get("쿼리"))
+
+
 if 요약들:
-    st.caption("저장된 자료로 계산한 요약입니다. 카드를 누르면 해당 프로그램으로 갑니다.")
+    st.caption("저장된 자료로 계산한 요약입니다.")
     # 사이드바와 같은 묶음(시장·내 자산·계산기) 순서로, 묶음마다 제목을 달고
-    # 두 장씩 놓습니다. ('제목' 줄과 '카드' 줄을 한 목록에 차례로 담음)
+    # 세 칸씩 놓습니다. 카드가 모자란 줄도 세 칸으로 두어 크기를 맞춥니다.
     묶음별 = {}
     for item in 요약들:
         묶음별.setdefault(ui.묶음_찾기(item["경로"])[0], []).append(item)
-    행들 = []
-    for 묶음이름, _ in ui.메뉴묶음:
-        카드들 = 묶음별.get(묶음이름) or []
-        if 카드들:
-            행들.append(("제목", 묶음이름))
-            행들 += [("카드", 카드들[i:i + 2]) for i in range(0, len(카드들), 2)]
-    for 종류, 묶음 in 행들:
-        if 종류 == "제목":
-            st.markdown(f'<div class="묶음제목">{묶음}</div>',
+    with st.container(key="homegrid"):
+        for 묶음이름, _ in ui.메뉴묶음:
+            카드들 = 묶음별.get(묶음이름) or []
+            if not 카드들:
+                continue
+            st.markdown(f'<div class="묶음제목">{글자만(묶음이름)}</div>',
                         unsafe_allow_html=True)
-            continue
-        # 늘 두 칸 — 카드가 하나뿐인 줄도 반 폭으로 두어야 줄마다 크기가 같습니다
-        cols = st.columns(2)
-        for col, item in zip(cols, 묶음):
-            with col:
-                # key 는 CSS 가 이 상자만 골라 간격을 좁히는 데 씁니다 (ui.py)
-                with st.container(border=True,
-                                  key=f"homecard_{abs(hash(item['이름']))}"):
-                    st.markdown(f"**{item['이름']}**")
-                    st.markdown(f"### {item['핵심']}")
-                    st.caption(item.get("부제", ""))
-
-                    if item.get("그래프"):
-                        라벨, 점들 = item["그래프"]
-                        if 점들:
-                            fig = go.Figure(go.Scatter(
-                                x=[p[0] for p in 점들], y=[p[1] for p in 점들],
-                                mode="lines", line=dict(color="#2B6ED5", width=2),
-                                fill="tozeroy",
-                                fillcolor="rgba(43,110,213,.12)",
-                                hovertemplate="%{x|%Y-%m}<br>%{y:,.0f}<extra></extra>"))
-                            fig.update_layout(
-                                height=110, margin=dict(l=0, r=0, t=4, b=0),
-                                xaxis=dict(visible=False), yaxis=dict(visible=False),
-                                plot_bgcolor="rgba(0,0,0,0)",
-                                paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
-                            ui.차트(fig, key=f"g_{item['이름']}")
-
-                    if item.get("막대"):
-                        fig = go.Figure(go.Bar(
-                            x=[b[0] for b in item["막대"]],
-                            y=[b[1] for b in item["막대"]],
-                            marker_color="#18A57A",
-                            hovertemplate="%{x}<br>%{y:,.0f}원<extra></extra>"))
-                        fig.update_layout(
-                            height=110, margin=dict(l=0, r=0, t=4, b=0),
-                            yaxis=dict(visible=False),
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
-                        ui.차트(fig, key=f"b_{item['이름']}")
-
-                    if item.get("도넛"):
-                        fig = go.Figure(go.Pie(
-                            labels=[d[0] for d in item["도넛"]],
-                            values=[d[1] for d in item["도넛"]], hole=0.6,
-                            textinfo="none",
-                            marker=dict(colors=["#2B6ED5", "#18A57A", "#E28A2B",
-                                                "#C0392B", "#8E7CC3", "#3B7EA1"]),
-                            hovertemplate="%{label} %{percent}<extra></extra>"))
-                        fig.update_layout(
-                            height=110, margin=dict(l=0, r=0, t=4, b=0),
-                            showlegend=False, plot_bgcolor="rgba(0,0,0,0)",
-                            paper_bgcolor="rgba(0,0,0,0)")
-                        ui.차트(fig, key=f"p_{item['이름']}")
-
-                    st.caption(item.get("덧말", ""))
-                    st.page_link(item["경로"], label="자세히 보기", icon="➡️",
-                                 query_params=item.get("쿼리"))
+            for i in range(0, len(카드들), 3):
+                for col, item in zip(st.columns(3), 카드들[i:i + 3]):
+                    with col:
+                        카드(item)
 
     if 문제:
         with st.expander("요약을 만들지 못한 항목"):
@@ -364,35 +429,31 @@ elif not 손님:
 # ==========================================================================
 # 전체 프로그램 목록
 # ==========================================================================
-# ★ 예전에는 프로그램마다 상자를 하나씩(12개) 접어 두었습니다. 이제는 묶음
-#   하나에 상자 하나(4개)로, 늘 펼쳐 둡니다. 휴대폰에서 사이드바를 못 열 때
-#   다른 묶음으로 가는 길이 여기라서 접어 두지 않습니다. 메뉴는 ui.메뉴묶음
-#   한 곳에서 정하므로 사이드바·페이지 위 알약 줄과 항상 같습니다.
+# 묶음 하나에 상자 하나(4개)로, 늘 펼쳐 둡니다. 휴대폰에서 사이드바를 못 열 때
+# 다른 묶음으로 가는 길이 여기라서 접어 두지 않습니다. 메뉴는 ui.메뉴묶음
+# 한 곳에서 정하므로 사이드바·페이지 위 알약 줄과 항상 같습니다.
 st.divider()
-st.markdown('<div class="묶음제목">📋 전체 프로그램</div>', unsafe_allow_html=True)
+st.markdown('<div class="묶음제목">전체 프로그램</div>', unsafe_allow_html=True)
 내프로그램 = addons.정상_목록()
-for i in range(0, len(ui.메뉴묶음), 2):
-    cols = st.columns(len(ui.메뉴묶음[i:i + 2]))
-    for col, (묶음이름, 페이지들) in zip(cols, ui.메뉴묶음[i:i + 2]):
-        with col, st.container(border=True, key=f"homebox_{i}_{묶음이름[-2:]}"):
-            st.markdown(f"**{묶음이름}**")
-            for 경로, 아이콘, 이름, 설명 in 페이지들:
-                if not ui._있나(경로):
-                    continue
-                st.page_link(경로, label=f"{아이콘} {이름}",
-                             help=설명 or None)
-            if 묶음이름.endswith("도구") and 내프로그램:
-                st.caption("myapps/ — " + " · ".join(
-                    f"{p['아이콘']} {p['제목']}" for p in 내프로그램))
+cols = st.columns(len(ui.메뉴묶음))
+for i, (col, (묶음이름, 페이지들)) in enumerate(zip(cols, ui.메뉴묶음)):
+    with col, st.container(border=True, key=f"homebox_{i}_{묶음이름[-2:]}"):
+        st.markdown(f"**{글자만(묶음이름)}**")
+        for 경로, 아이콘, 이름, 설명 in 페이지들:
+            if not ui._있나(경로):
+                continue
+            st.page_link(경로, label=이름, help=설명 or None)
+        if 묶음이름.endswith("도구") and 내프로그램:
+            st.caption("myapps/ — " + " · ".join(p["제목"] for p in 내프로그램))
 
 st.divider()
-with st.expander("ℹ️ 사용 / 관리 안내"):
+with st.expander("사용 / 관리 안내"):
     아이콘, 짧게, 자세히 = storage.저장소_상태()
     st.markdown(
         f"**저장 위치** — {아이콘} {짧게}. {자세히}\n\n"
         "**요약이 안 보이는 항목** — 그 프로그램에서 설정을 한 번 저장하면 "
-        "여기에 나타납니다. 환전·자산배분처럼 시세가 필요한 것은 해당 페이지를 "
-        "한 번 열어야 정확한 값이 나옵니다.\n\n"
+        "여기에 나타납니다. 자산배분처럼 시세가 필요한 것은 아침 브리핑 기록이나 "
+        "해당 페이지를 한 번 열어야 정확한 값이 나옵니다.\n\n"
         "**화면 테마** — PC·휴대폰의 다크모드 설정을 따라갑니다. "
         "직접 고르려면 우측 상단 ⋮ → Settings → Appearance.\n\n"
         "**외부 접속** — `외부접속_설정_가이드.md` 참고"
