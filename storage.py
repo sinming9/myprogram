@@ -341,7 +341,8 @@ def 저장소_상태():
 def 저장소_사이드바():
     """사이드바에 현재 저장 위치와 새로고침 버튼을 표시합니다."""
     아이콘, 짧게, 자세히 = 저장소_상태()
-    with st.sidebar.expander(f"{아이콘} 저장 위치: {짧게}", expanded=False):
+    import ui as _ui            # 계정·설정 상자 안에 그립니다 (ui.소묶음)
+    with _ui.소묶음(f"{아이콘} 저장 위치: {짧게}"):
         st.caption(자세히)
         if 저장방식() == "gist":
             if st.button("🔄 다른 기기의 변경 내용 가져오기", width="stretch",

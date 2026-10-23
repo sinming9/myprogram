@@ -384,15 +384,18 @@ def 로그아웃_버튼():
     """사이드바에 현재 역할 표시 + 필요한 버튼들."""
     주인 = 주인인가()
     방식 = st.session_state.get("_로그인방식")
+    # 사이드바의 '계정·설정' 상자 안에 그립니다 (ui.사이드바_틀 설명 참고)
+    import ui as _ui
+    곳 = _ui.사이드바_틀()
 
     if 주인:
-        st.sidebar.success("👑 Master — 저장할 수 있습니다", icon="👑")
+        곳.success("Master — 저장할 수 있습니다", icon="👑")
     else:
-        st.sidebar.info("👤 Guest — 저장은 이번 접속에서만 유지됩니다", icon="👤")
+        곳.info("Guest — 저장은 이번 접속에서만 유지됩니다", icon="👤")
 
     # 손님이 비밀번호로 주인이 되는 길 (비밀번호를 설정해 둔 경우에만)
     if not 주인 and _비밀번호_설정됨():
-        with st.sidebar.expander("🔑 Master 로 전환"):
+        with _ui.소묶음("🔑 Master 로 전환"):
             with st.form("_승격"):
                 pw = st.text_input("비밀번호", type="password")
                 눌림 = st.form_submit_button("전환", use_container_width=True)
@@ -416,7 +419,7 @@ def 로그아웃_버튼():
                         st.error("비밀번호가 올바르지 않습니다.")
 
     if 주인 and 방식 != "생략":
-        if st.sidebar.button("🚪 Guest 로 나가기", use_container_width=True):
+        if 곳.button("🚪 Guest 로 나가기", use_container_width=True):
             for 키 in ("_역할", "_로그인방식"):
                 st.session_state.pop(키, None)
             st.session_state["_역할"] = "guest"
@@ -427,7 +430,7 @@ def 로그아웃_버튼():
 
     열쇠 = _설정값("url_key")
     if 열쇠 and 주인:
-        with st.sidebar.expander("🔗 비밀번호 없이 들어오기"):
+        with _ui.소묶음("🔗 비밀번호 없이 들어오기"):
             # ※ 열쇠는 기본으로 가려둡니다. 화면 캡처로 새어나갈 수 있습니다.
             st.caption("휴대폰 홈 화면에 추가해두면 누를 때마다 Master 로 열립니다. "
                        "처음 한 번만 확인하면 됩니다.")

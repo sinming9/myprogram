@@ -49,6 +49,9 @@ else:
           if f.endswith(".py")]
 
 페이지 = st.navigation(구성, position="sidebar" if 로그인됨 else "hidden")
+# 계정·버전·저장 위치 안내를 사이드바의 '계정·설정' 상자 하나로 모읍니다
+if hasattr(ui, "계정틀_정하기"):
+    ui.계정틀_정하기(st.sidebar.expander("계정·설정") if 로그인됨 else None)
 페이지.run()
 
 # ★ 로그인은 페이지 안(require_login)에서 일어납니다. 이번 실행에서 막
