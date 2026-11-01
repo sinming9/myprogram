@@ -1628,3 +1628,97 @@ def 텔레그램_자산요약(오늘: dict, 어제: dict = None, 월초: dict = 
         줄.append("<i>오늘이 첫 기록이라 비교할 값이 아직 없습니다. "
                  "내일부터 어제 대비가 나옵니다.</i>")
     return "\n".join(줄)
+
+
+# ==========================================================================
+# 아침 브리핑 기록(portfolio_history) 읽기 — 앱 첫 화면과 브리핑이 같이 씁니다
+# ==========================================================================
+#  ★ 예전에는 scripts/morning_brief.py 안에만 있었습니다. 첫 화면이 텔레그램과
+#    같은 숫자(이번 주 · ⚡ 큰 변동 · 싼 구간 며칠째)를 보이려고 여기로 옮겼고,
+#    러너는 이 함수들을 그대로 불러 씁니다.
+
+def 기록_정렬(기록: dict) -> list:
+    """portfolio_history → 날짜순 스냅샷 목록 (날짜 없는 것은 뺌)."""
+    return sorted([s for s in (기록 or {}).get("스냅샷") or []
+                   if isinstance(s, dict) and s.get("날짜")],
+                  key=lambda s: str(s["날짜"]))
+
+
+def 기록_주초(스냅샷들: list, 오늘날짜: str) -> dict:
+    """이번 주(월요일 이후)에 남은 가장 이른 기록. 오늘 것은 빼고 봅니다."""
+    try:
+        오늘 = date.fromisoformat(오늘날짜)
+    except (TypeError, ValueError):
+        return {}
+    월요일 = (오늘 - timedelta(days=오늘.weekday())).isoformat()
+    이번주 = [s for s in 스냅샷들 if 월요일 <= str(s.get("날짜", "")) < 오늘날짜]
+    return min(이번주, key=lambda s: s["날짜"]) if 이번주 else {}
+
+
+def 기록_며칠전(스냅샷들: list, 오늘날짜: str, 날수: int) -> dict:
+    """N일 전 기록. 그날이 비었으면 그보다 앞선 가장 가까운 기록."""
+    try:
+        날 = (date.fromisoformat(오늘날짜) - timedelta(days=날수)).isoformat()
+    except (TypeError, ValueError):
+        return {}
+    앞 = [s for s in 스냅샷들 if str(s.get("날짜", "")) <= 날]
+    return max(앞, key=lambda s: s["날짜"]) if 앞 else {}
+
+
+def 기록_입출금(뒤: dict, 앞: dict) -> float:
+    """두 기록 사이에 넣고 뺀 돈. 종목칸이 둘 다 있으면 종목별로 가르고,
+    없으면(8일 지난 기록) 원금 변화로 어림합니다."""
+    if (뒤 or {}).get("종목") and (앞 or {}).get("종목"):
+        return 종목_움직임(뒤, 앞)["매수합"]
+    a, b = _숫자((뒤 or {}).get("원금")), _숫자((앞 or {}).get("원금"))
+    return a - b if a > 0 and b > 0 else 0.0
+
+
+def 기록_일별변동(스냅샷들: list, 시작날: str = "") -> list:
+    """기록 하나하나의 전날 대비 변화 — ⚡ 큰 변동(주간판·첫 화면 그래프)용.
+
+    [{"날짜": 장 날짜, "기록일", "차이": 총자산 변화, "변동률": 총자산 %,
+      "시장률": 입출금 뺀 %}]
+    ★ 아침 기록은 '전날 장' 이라 날짜는 기록일 하루 전으로 적습니다
+      (토요일 아침 기록 → 10/30(금)).
+    """
+    차례 = sorted(스냅샷들, key=lambda s: str(s.get("날짜", "")))
+    결과 = []
+    for 앞, 뒤 in zip(차례, 차례[1:]):
+        if str(뒤.get("날짜", "")) < 시작날:
+            continue
+        옛, 새 = _숫자(앞.get("총액")), _숫자(뒤.get("총액"))
+        if 옛 <= 0 or 새 <= 0:
+            continue
+        try:
+            장날 = date.fromisoformat(str(뒤["날짜"])) - timedelta(days=1)
+        except ValueError:
+            continue
+        결과.append({"날짜": 장날.isoformat(), "기록일": str(뒤["날짜"]),
+                   "차이": 새 - 옛, "변동률": (새 - 옛) / 옛 * 100,
+                   "시장률": (새 - 옛 - 기록_입출금(뒤, 앞)) / 옛 * 100})
+    return 결과
+
+
+def 기록_구간날수(스냅샷들: list, 통화이름: str, 오늘날짜: str, 오늘위치,
+             싼기준: float = 15.0, 비싼기준: float = 85.0) -> int:
+    """오늘을 포함해 그 환율 구간(싼 편/비싼 편)에 **연속으로** 며칠째인지.
+    오늘 구간 밖이면 0. 하루라도 기록이 비면 거기서 멈춥니다."""
+    if 오늘위치 is None:
+        return 0
+    싼쪽 = 오늘위치 <= 싼기준
+    if not 싼쪽 and 오늘위치 < 비싼기준:
+        return 0
+    날별 = {str(s.get("날짜")): (s.get("환율위치") or {}).get(통화이름)
+          for s in 스냅샷들}
+    try:
+        기대 = date.fromisoformat(오늘날짜) - timedelta(days=1)
+    except ValueError:
+        return 1
+    날수 = 1
+    while True:
+        위치 = 날별.get(기대.isoformat())
+        if 위치 is None or not ((위치 <= 싼기준) if 싼쪽 else (위치 >= 비싼기준)):
+            return 날수
+        날수 += 1
+        기대 -= timedelta(days=1)
