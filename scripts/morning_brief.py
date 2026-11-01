@@ -385,15 +385,9 @@ def 주초것(스냅샷들, 오늘날짜) -> dict:
     """이번 주(월요일 이후)에 남은 가장 이른 기록.
 
     토요일 결산에서 "이번 주 얼마 늘었나" 를 내는 데 씁니다.
+    (계산은 engines.portfolio — 앱 첫 화면과 같은 함수)
     """
-    try:
-        오늘 = date.fromisoformat(오늘날짜)
-    except (TypeError, ValueError):
-        return {}
-    월요일 = (오늘 - timedelta(days=오늘.weekday())).isoformat()
-    이번주 = [s for s in 스냅샷들
-            if 월요일 <= str(s.get("날짜", "")) < 오늘날짜]
-    return min(이번주, key=lambda s: s["날짜"]) if 이번주 else {}
+    return PF.기록_주초(스냅샷들, 오늘날짜)
 
 
 def 지난주것(스냅샷들, 오늘날짜) -> dict:
@@ -410,27 +404,15 @@ def 일별_변동(스냅샷들, 오늘, 오늘날짜, 날수=7) -> list:
 
     [{"날짜": 장 날짜, "차이": 총자산 변화, "시장률": 입출금 뺀 %}]
     ★ 아침 기록은 '전날 장' 이라 날짜는 기록일 하루 전으로 적습니다
-      (토요일 아침 기록 → 10/30(금)). 입출금은 종목칸이 있어야 가를 수
-      있어, 종목칸이 없는 날은 입출금 0 으로 봅니다(8일치는 남깁니다).
+      (토요일 아침 기록 → 10/30(금)). 계산은 engines.portfolio.기록_일별변동
+      (앱 첫 화면 그래프의 ⚡ 점과 같은 함수).
     """
     try:
         시작 = (date.fromisoformat(오늘날짜) - timedelta(days=날수 - 1)).isoformat()
     except (TypeError, ValueError):
         return []
-    차례 = sorted([s for s in 스냅샷들 if str(s.get("날짜", "")) < 오늘날짜]
-                + [오늘], key=lambda s: str(s.get("날짜", "")))
-    결과 = []
-    for 앞, 뒤 in zip(차례, 차례[1:]):
-        if str(뒤.get("날짜", "")) < 시작:
-            continue
-        옛, 새 = PF._숫자(앞.get("총액")), PF._숫자(뒤.get("총액"))
-        if 옛 <= 0 or 새 <= 0:
-            continue
-        매수 = PF.종목_움직임(뒤, 앞)["매수합"]
-        장날 = date.fromisoformat(str(뒤["날짜"])) - timedelta(days=1)
-        결과.append({"날짜": 장날.isoformat(), "차이": 새 - 옛,
-                   "시장률": (새 - 옛 - 매수) / 옛 * 100})
-    return 결과
+    차례 = [s for s in 스냅샷들 if str(s.get("날짜", "")) < 오늘날짜] + [오늘]
+    return PF.기록_일별변동(차례, 시작)
 
 
 def 지난달것(스냅샷들, 오늘날짜) -> dict:
@@ -634,6 +616,53 @@ def 유령KS_보정(기록, 스냅샷들, 종목들, 조회=None) -> list:
     return 고친것
 
 
+원금보정_마감 = "2026-11-01"     # 이 날짜 전 기록만 한 번 고침 (사용자 확인: 10/02 입력 실수)
+
+
+def _평균(a, b):
+    """두 기록 칸의 평균 — 숫자면 숫자, 사전이면 칸마다 (중첩 사전 포함)."""
+    if isinstance(a, dict) or isinstance(b, dict):
+        a, b = a if isinstance(a, dict) else {}, b if isinstance(b, dict) else {}
+        return {k: _평균(a.get(k), b.get(k)) for k in sorted(set(a) | set(b))}
+    return (PF._숫자(a) + PF._숫자(b)) / 2
+
+
+def 원금오류_보정(기록, 오늘날짜) -> list:
+    """원금이 앞뒤 날 평균의 2배를 넘었다가 다음 날 돌아온 하루 기록을
+    앞뒤 날 평균으로 채우고, 그 기록에 '보정됨' 을 남깁니다. **한 번만** 돕니다.
+
+    ★ 2026-10-02: 앱에서 값을 잘못 넣었다가 나중에 고친 날. 그날 원금이
+      8.19억(평소 1.85억)·총액 +1,400만원으로 남아 그래프가 하루 튀었습니다.
+      종목별 칸은 8일만 남아 그날 실제 값을 되살릴 수 없으므로, 앞뒤 날
+      평균으로 채우는 '추정' 이라 보정됨 칸에 원래 값과 함께 적어 둡니다.
+    ★ 앞으로 같은 일이 생기면 자동으로 고치지 않습니다 — 브리핑의
+      원금점검_줄 이 경고 한 줄만 띄웁니다(기록['보정']['원금튐'] 으로 막음).
+    """
+    if (기록.get("보정") or {}).get("원금튐"):
+        return []
+    차례 = sorted([s for s in 기록.get("스냅샷") or [] if isinstance(s, dict) and s.get("날짜")],
+                key=lambda s: str(s["날짜"]))
+    고친날 = []
+    for 앞, 이날, 뒤 in zip(차례, 차례[1:], 차례[2:]):
+        if str(이날["날짜"]) >= 원금보정_마감:
+            continue                      # 이후 날짜는 고치지 않고 경고만
+        a, b, c = (PF._숫자(s.get("원금")) for s in (앞, 이날, 뒤))
+        if a <= 0 or c <= 0 or b <= 2 * (a + c) / 2:
+            continue
+        원래 = {k: 이날.get(k) for k in ("총액", "원금", "원금있는총액")}
+        for 칸 in ("총액", "원금", "원금있는총액", "계좌", "계좌시장", "자산군"):
+            if 칸 in 이날:
+                이날[칸] = _평균(앞.get(칸), 뒤.get(칸))
+        이날.pop("종목", None)
+        이날["보정됨"] = {
+            "사유": "입력 실수로 원금이 하루만 튐 — 앞뒤 날 평균으로 채운 추정값",
+            "기준": [str(앞["날짜"]), str(뒤["날짜"])],
+            "원래": 원래, "보정일": 오늘날짜}
+        고친날.append(str(이날["날짜"]))
+    기록.setdefault("보정", {})["원금튐"] = True
+    return 고친날
+
+
 def 최근_위치(스냅샷들, 통화이름, 오늘날짜):
     """그 통화의 위치가 남아 있는 가장 최근 기록의 위치.
 
@@ -659,25 +688,9 @@ def 구간_머문날수(스냅샷들, 통화이름, 오늘날짜, 오늘위치,
       · 오늘을 안 세서 늘 하루 적었습니다.
       · 날이 아니라 기록 개수를 세서, 며칠 빠진 기록도 이어진 것처럼
         셌습니다. 이제는 하루라도 비면 거기서 멈춥니다.
+    (계산은 engines.portfolio.기록_구간날수 — 앱 첫 화면과 같은 함수)
     """
-    if 오늘위치 is None:
-        return 0
-    싼쪽 = 오늘위치 <= 싼기준
-    if not 싼쪽 and 오늘위치 < 비싼기준:
-        return 0
-    날별 = {str(s.get("날짜")): (s.get("환율위치") or {}).get(통화이름)
-          for s in 스냅샷들}
-    try:
-        기대 = date.fromisoformat(오늘날짜) - timedelta(days=1)
-    except ValueError:
-        return 1
-    날수 = 1
-    while True:
-        위치 = 날별.get(기대.isoformat())
-        if 위치 is None or not ((위치 <= 싼기준) if 싼쪽 else (위치 >= 비싼기준)):
-            return 날수
-        날수 += 1
-        기대 -= timedelta(days=1)
+    return PF.기록_구간날수(스냅샷들, 통화이름, 오늘날짜, 오늘위치, 싼기준, 비싼기준)
 
 
 # ==========================================================================
@@ -741,6 +754,25 @@ def 실행() -> int:
         고친것 = 유령KS_보정(기록, 스냅샷들, 종목들)
         if 고친것:
             알림글(f"   지난 기록 보정 (유령 .KS 가격): {', '.join(고친것)}")
+
+    # 입력 실수로 원금이 하루만 크게 튄 기록(2026-10-02)을 한 번 고칩니다.
+    # ★ 고치기 전에 원본 전체를 날짜 붙인 사본으로 Gist 에 먼저 남기고,
+    #   사본 저장이 실패하면 고치지 않습니다. DRY_RUN 은 저장 없이 고친 모습만.
+    if not 담긴것.get("_기록실패"):
+        원본 = json.loads(json.dumps(기록, default=str))
+        고칠것 = json.loads(json.dumps(기록, default=str))
+        고친날 = 원금오류_보정(고칠것, 오늘날짜)
+        if 고친날:
+            백업이름 = f"portfolio_history_backup_{오늘날짜}.json"
+            좋음, 오류 = (True, "") if 시험만 else gist_쓰기(깃토큰, 기스트, 백업이름, 원본)
+            if 좋음:
+                기록 = 고칠것
+                스냅샷들 = [s for s in (기록.get("스냅샷") or [])
+                        if isinstance(s, dict) and s.get("날짜")]
+                알림글(f"   지난 기록 보정 (원금 입력 실수): {', '.join(고친날)} "
+                      f"— 원본은 {백업이름}" + (" (DRY_RUN: 저장 안 함)" if 시험만 else ""))
+            else:
+                경고글(f"원본 사본({백업이름})을 못 남겨 기록 보정을 미룹니다: {오류}")
 
     어제 = 어제것(스냅샷들, 오늘날짜)
 
