@@ -285,7 +285,7 @@ def 야후티커(티커: str, 시장: str) -> list:
     return [t]
 
 
-def _fdr_시세(티커: str, 시장: str) -> dict:
+def _fdr_시세(티커: str, 시장: str, 기준전: str = None) -> dict:
     """FinanceDataReader 로 조회. 야후에 없는 신규 상장 ETF 대비용입니다.
 
     야후는 국내 신규 상장 종목 수록이 늦습니다. FDR 은 KRX 에서 직접
@@ -308,9 +308,11 @@ def _fdr_시세(티커: str, 시장: str) -> dict:
     시작 = 끝 - timedelta(days=400)
     df = _시간제한(lambda: fdr.DataReader(
         t, 시작.strftime("%Y-%m-%d"), 끝.strftime("%Y-%m-%d")), 25)
+    if df is not None and not df.empty and 기준전:
+        df = df[[d.date().isoformat() < 기준전 for d in df.index]]   # 오늘 장중 봉 제외
     if df is None or df.empty or "Close" not in df:
         raise ValueError("FinanceDataReader 응답이 비어 있습니다")
-    종가들 = [float(v) for v in df["Close"].tolist() if v == v and v]
+    종가들 =[float(v) for v in df["Close"].tolist() if v == v and v]
     if not 종가들:
         raise ValueError("유효한 종가가 없습니다")
     마지막날 = df.index.max().date()
@@ -382,10 +384,15 @@ def 업비트_시세(심볼: str, 시간제한=10) -> dict:
     }
 
 
-def 시세_조회(티커: str, 시장: str) -> dict:
+def 시세_조회(티커: str, 시장: str, 기준전: str = None) -> dict:
     """현재가·52주 고저·이동평균·최근 1년 배당 합계.
 
     실패하면 예외를 던집니다. 부르는 쪽에서 감싸주세요.
+
+    기준전 — "2026-11-12" 처럼 주면 **그 날짜 전에 끝난 장의 종가**만 씁니다
+      (아침 브리핑용). 안 주면 지금 가격(장중이면 장중 가격)입니다.
+      ★ 2026-11-12: 예약 실행이 밀려 09:00 뒤에 돈 날, 장중 가격이 '전날 장'
+        으로 나갔습니다(전날 +0.7% 오른 NAVER 가 -5.8% 로). 코인은 해당 없음.
     """
     오류 = []
     if 시장 == "COIN":
@@ -406,6 +413,16 @@ def 시세_조회(티커: str, 시장: str) -> dict:
         시각들 = 데이터.get("timestamp") or []
         원종가 = 데이터["indicators"]["quote"][0].get("close") or []
         짝 = [(t, v) for t, v in zip(시각들, 원종가) if v is not None]
+        종가만 = bool(기준전) and 시장 != "COIN"
+        if 종가만:
+            # 거래소 현지 날짜가 기준전 보다 앞선 봉만 — 오늘 장중 봉을 뺍니다
+            _시차 = int((데이터.get("meta") or {}).get("gmtoffset") or 0)
+            짝 = [(t, v) for t, v in 짝
+                 if (datetime(1970, 1, 1) + timedelta(seconds=t + _시차))
+                 .date().isoformat() < 기준전]
+            if not 짝:
+                오류.append(f"{후보}: {기준전} 전 종가 없음")
+                continue
         종가들 = [v for _, v in 짝] or [v for v in 원종가 if v is not None]
         if not 종가들:
             오류.append(f"{후보}: 종가 없음")
@@ -426,7 +443,7 @@ def 시세_조회(티커: str, 시장: str) -> dict:
         #   마지막 종가 날짜와 meta 시각 중 늦은 쪽이 기준일입니다.
         마지막종가시각 = 짝[-1][0] if 짝 else 0
         메타시각 = int(메타.get("regularMarketTime") or 0)
-        기준시각 = max(마지막종가시각, 메타시각)
+        기준시각 = 마지막종가시각 if 종가만 else max(마지막종가시각, 메타시각)
         # ★ 날짜는 '거래소 현지' 로 읽습니다. 실행 기계 시간대로 읽으면 미국
         #   금요일 종가(한국 토요일 06:00)가 '토요일' 로 찍혀서, 기준일을
         #   로그로 남겨도 전날 종가인지 확인할 수 없습니다.
@@ -438,7 +455,7 @@ def 시세_조회(티커: str, 시장: str) -> dict:
             continue
         # meta 가격이 종가보다 사흘 넘게 뒤처지면 meta 를 믿지 않습니다
         메타가 = 메타.get("regularMarketPrice")
-        if 메타가 and 메타시각 >= 마지막종가시각 - 3 * 86400:
+        if 메타가 and not 종가만 and 메타시각 >= 마지막종가시각 - 3 * 86400:
             현재가 = float(메타가)
         else:
             현재가 = float(종가들[-1])
@@ -483,7 +500,7 @@ def 시세_조회(티커: str, 시장: str) -> dict:
         raise RuntimeError(" / ".join(오류))
     # 야후가 모두 실패하면 FinanceDataReader 로 한 번 더 (신규 상장 대비)
     try:
-        return _fdr_시세(티커, 시장)
+        return _fdr_시세(티커, 시장, 기준전)
     except Exception as e:  # noqa: BLE001
         오류.append(f"FinanceDataReader: {e}")
 
@@ -1176,7 +1193,7 @@ def 증감_한글(지금, 이전) -> str:
     return f"{화살}{abs(비율):.2f}% ({부호}{금액_한글(차이)})"
 
 
-def 시세_모으기(종목들: list) -> tuple:
+def 시세_모으기(종목들: list, 기준전: str = None) -> tuple:
     """(시세맵, 실패목록). 시세맵 = {(티커, 시장): 시세dict}
 
     같은 티커를 여러 계좌에서 들고 있어도 한 번만 조회합니다.
@@ -1201,7 +1218,8 @@ def 시세_모으기(종목들: list) -> tuple:
     if not 열쇠들:
         return 시세맵, 실패
     with cf.ThreadPoolExecutor(max_workers=min(8, len(열쇠들))) as 풀:
-        일들 = {풀.submit(시세_조회, 티, 시): (티, 시) for 티, 시 in 열쇠들}
+        # 기준전 을 주면(아침 브리핑) 그 날짜 전에 끝난 장의 종가만 씁니다
+        일들 = {풀.submit(시세_조회, 티, 시, 기준전): (티, 시) for 티, 시 in 열쇠들}
         for 일 in cf.as_completed(일들):
             티, 시 = 일들[일]
             try:
